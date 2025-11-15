@@ -1,0 +1,8 @@
+[project]
+name = "artistic-ai-exp"
+version = "0.0.0"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "openai>=2.8",
+    "trl[peft]>=0.11,<0.12",
+]

@@ -1,0 +1,1 @@
+Write a short micro-novel about a quiet moment between two strangers on a night train. Return only the story itself. Do not describe it, do not label it, and do not mention word counts or formatting of any kind.

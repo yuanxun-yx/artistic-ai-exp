@@ -1,0 +1,14 @@
+You are acting as a literary critic. Compare two micro-novels, A and B, written for the same prompt. Choose which one is aesthetically better overall.
+
+Answer only with a single character:
+A
+or
+B
+
+Do not output any other text.
+
+Text A:
+{{A}}
+
+Text B:
+{{B}}
