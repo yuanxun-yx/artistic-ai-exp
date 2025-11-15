@@ -1,4 +1,7 @@
 import asyncio
+from datetime import datetime
+import os
+import json
 import torch
 from trl import PPOTrainer, PPOConfig, AutoModelForCausalLMWithValueHead
 from peft import LoraConfig
@@ -18,9 +21,10 @@ class ScriptArguments:
     critic_max_retries: int = 3
     critic_budget: int = 500
     max_work_tokens: int = 320
-    output_dir: str = "checkpoints"
     num_steps: int = 200
-    logging_steps: int = 100
+    logging_steps: int = 10
+    log_dir: str = "logs"
+    run_name: str = None
 
 class Budget:
     def __init__(self, max_calls: int):
@@ -33,6 +37,9 @@ class Budget:
             if self.remaining <= 0:
                 raise RuntimeError("Budget exhausted")
             self.remaining -= 1
+
+def print_log(msg: str):
+    print(f"[{datetime.now().isoformat()}] {msg}")
 
 # critic: ChatGPT
 
@@ -65,68 +72,12 @@ async def batch_judge(pairs: tuple[str, str], budget: Budget, max_retries: int):
     return await asyncio.gather(*tasks, return_exceptions=True)
 
 
-# rollout & reward
-
-def rollout_batch(
-    trainer: PPOTrainer,
-    budget: Budget,
-    max_retries: int,
-    max_work_tokens: int
-):
-
-    device = next(trainer.model.parameters()).device
-
-    # generate pairs
-    prompt_ids = trainer.tokenizer(ARTIST_PROMPT, padding=False, truncation=True)["input_ids"]
-    prompt_tensor = torch.tensor(prompt_ids, dtype=torch.long, device=device)
-
-    response_tensors = trainer.generate(
-        [prompt_tensor] * trainer.config.batch_size,
-        max_new_tokens=max_work_tokens,
-        # default values
-        temperature=1.0,
-        top_p=0.9
-    )
-    responses = []
-    for r_ids in response_tensors:
-        gen_ids = r_ids[len(prompt_ids):]
-        responses.append(tokenizer.decode(gen_ids, skip_special_tokens=True).lstrip())
-
-    pair_range = range(0, len(responses), 2)
-    tensor_pairs = [(response_tensors[i], response_tensors[i + 1]) for i in pair_range]
-    text_pairs = [(responses[i], responses[i + 1]) for i in pair_range]
-
-    results = asyncio.run(batch_judge(text_pairs, budget, max_retries))
-
-    kept_response_tensors = []
-    rewards = []
-
-    for pair, is_a_winner in zip(tensor_pairs, results):
-        if isinstance(is_a_winner, RuntimeError):
-            continue
-
-        assert isinstance(is_a_winner, bool)
-
-        kept_response_tensors.append(pair[0])
-        kept_response_tensors.append(pair[1])
-
-        if is_a_winner:
-            rewards.extend([1.0, -1.0])
-        else:
-            rewards.extend([-1.0, 1.0])
-
-    if not rewards:
-        raise RuntimeError("No valid critic judgements in this batch")
-
-    query_tensors = [prompt_tensor] * len(kept_response_tensors)
-    reward_tensors = [torch.tensor([r], dtype=torch.float32, device=device) for r in rewards]
-
-    return query_tensors, kept_response_tensors, reward_tensors
-
-
 if __name__ == "__main__":
     parser = HfArgumentParser(ScriptArguments)
     script_args, = parser.parse_args_into_dataclasses()
+    if script_args.run_name is None:
+        script_args.run_name = datetime.now().strftime("%Y%m%d%H%M%S")
+    os.makedirs(script_args.log_dir, exist_ok=True)
 
     # default params
     ppo_config = PPOConfig(
@@ -150,7 +101,7 @@ if __name__ == "__main__":
     policy = AutoModelForCausalLMWithValueHead.from_pretrained(
         ARTIST_MODEL_NAME,
         peft_config=lora_config,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         device_map="auto"
     )
 
@@ -160,24 +111,72 @@ if __name__ == "__main__":
         tokenizer=tokenizer
     )
 
+    device = next(trainer.model.parameters()).device
+
     budget = Budget(max_calls=script_args.critic_budget)
 
     for step in range(script_args.num_steps):
-        try:
-            queries, responses, rewards = rollout_batch(
-                trainer=trainer,
-                budget=budget,
-                max_retries=script_args.critic_max_retries,
-                max_work_tokens=script_args.max_work_tokens
-            )
-        except RuntimeError as e:
-            print(f"Step {step} failed: {e}")
-            break
 
-        trainer.step(queries, responses, rewards)
+        # generate pairs
+        prompt_ids = trainer.tokenizer(ARTIST_PROMPT, padding=False, truncation=True)["input_ids"]
+        prompt_tensor = torch.tensor(prompt_ids, dtype=torch.long, device=device)
+
+        response_tensors = trainer.generate(
+            [prompt_tensor] * trainer.config.batch_size,
+            max_new_tokens=script_args.max_work_tokens,
+            # default values
+            temperature=1.0,
+            top_p=0.9
+        )
+        responses = []
+        for r_ids in response_tensors:
+            gen_ids = r_ids[len(prompt_ids):]
+            responses.append(tokenizer.decode(gen_ids, skip_special_tokens=True).lstrip())
+
+        pair_range = range(0, len(responses), 2)
+        tensor_pairs = [(response_tensors[i], response_tensors[i + 1]) for i in pair_range]
+        text_pairs = [(responses[i], responses[i + 1]) for i in pair_range]
+
+        results = asyncio.run(batch_judge(text_pairs, budget, script_args.critic_max_retries))
+
+        kept_response_tensors = []
+        rewards = []
+
+        result_jsonl = []
+
+        for text_pair, tensor_pair, is_a_winner in zip(text_pairs, tensor_pairs, results):
+            if isinstance(is_a_winner, RuntimeError):
+                continue
+
+            assert isinstance(is_a_winner, bool)
+
+            kept_response_tensors.append(tensor_pair[0])
+            kept_response_tensors.append(tensor_pair[1])
+
+            if is_a_winner:
+                rewards.extend([1.0, -1.0])
+            else:
+                rewards.extend([-1.0, 1.0])
+
+            result_jsonl.append(json.dumps(
+                dict(step=step, a=text_pair[0], b=text_pair[1], is_a_winner=is_a_winner)))
+
+        if not rewards:
+            print(f"step {step} failed: no valid critic judgements")
+            continue
+
+        with open(f"{script_args.log_dir}/result_{script_args.run_name}.jsonl", "a") as f:
+            f.writelines(result_jsonl)
+
+        query_tensors = [prompt_tensor] * len(kept_response_tensors)
+        reward_tensors = [torch.tensor([r], dtype=torch.float32, device=device) for r in rewards]
+
+        stats = trainer.step(query_tensors, kept_response_tensors, reward_tensors)
+
+        with open(f"{script_args.log_dir}/stat_{script_args.run_name}.jsonl", "a") as f:
+            json.dump(stats, f)
+            f.write("\n")
 
         if step % script_args.logging_steps == 0:
             mean_reward = torch.tensor(rewards).mean().item()
-            print(f"step {step} mean_reward: {mean_reward}")
-
-    trainer.save_pretrained(script_args.output_dir)
+            print_log(f"step {step} mean_reward: {mean_reward}")
