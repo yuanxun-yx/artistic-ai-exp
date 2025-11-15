@@ -3,6 +3,7 @@ from datetime import datetime
 import os
 import json
 import torch
+import numpy as np
 from trl import PPOTrainer, PPOConfig, AutoModelForCausalLMWithValueHead
 from peft import LoraConfig
 from openai import AsyncOpenAI
@@ -166,17 +167,20 @@ if __name__ == "__main__":
             continue
 
         with open(f"{script_args.log_dir}/result_{script_args.run_name}.jsonl", "a") as f:
-            f.writelines(result_jsonl)
+            for l in result_jsonl:
+                f.write(l + "\n")
 
         query_tensors = [prompt_tensor] * len(kept_response_tensors)
         reward_tensors = [torch.tensor([r], dtype=torch.float32, device=device) for r in rewards]
 
         stats = trainer.step(query_tensors, kept_response_tensors, reward_tensors)
+        for k, v in stats.items():
+            if isinstance(v, np.ndarray):
+                stats[k] = v.tolist()
 
         with open(f"{script_args.log_dir}/stat_{script_args.run_name}.jsonl", "a") as f:
             json.dump(stats, f)
             f.write("\n")
 
         if step % script_args.logging_steps == 0:
-            mean_reward = torch.tensor(rewards).mean().item()
-            print_log(f"step {step} mean_reward: {mean_reward}")
+            print_log(f"step {step}")
