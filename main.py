@@ -107,6 +107,9 @@ if __name__ == "__main__":
     assert script_args.pair_mining_rounds <= script_args.num_candidates * (script_args.num_candidates - 1) // 2
     os.makedirs(script_args.log_dir, exist_ok=True)
 
+    with open(f"{script_args.log_dir}/param_{script_args.run_name}.json", "w") as f:
+        json.dump(vars(script_args), f)
+
     # default params
     ppo_config = PPOConfig(
         learning_rate=5e-6,
