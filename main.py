@@ -69,7 +69,7 @@ def build_critic_prompt(a: str, b: str) -> str:
 
 async def get_critic_choice(a: str, b: str, budget: Budget, max_retries: int) -> bool:
     prompt = build_critic_prompt(a, b)
-    for _ in range(max_retries):
+    for i in range(max_retries):
         await budget.consume()
         try:
             response = await client.responses.create(
@@ -78,7 +78,7 @@ async def get_critic_choice(a: str, b: str, budget: Budget, max_retries: int) ->
             )
         # openai burst rate limit
         except APIConnectionError:
-            await asyncio.sleep(3)
+            await asyncio.sleep(2 ** i * (1 + random.random() * 0.1))
             continue
         out = response.output_text.strip()
         if out == 'A':
