@@ -2,12 +2,13 @@ import asyncio
 from datetime import datetime
 import os
 import json
+import random
 from typing import Callable
 import torch
 import numpy as np
 from trl import PPOTrainer, PPOConfig, AutoModelForCausalLMWithValueHead
 from peft import LoraConfig
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, APIConnectionError
 from transformers import HfArgumentParser, AutoTokenizer
 from dataclasses import dataclass
 
@@ -29,6 +30,9 @@ class ScriptArguments:
     run_name: str = None
     whitespace_ratio: float = 0.6
     weird_unicode_ratio: float = 0.01
+    pair_mining_rounds: int = 10
+    num_candidates: int = 8
+    training_pairs: int = 2
 
 class Budget:
     def __init__(self, max_calls: int):
@@ -67,11 +71,15 @@ async def get_critic_choice(a: str, b: str, budget: Budget, max_retries: int) ->
     prompt = build_critic_prompt(a, b)
     for _ in range(max_retries):
         await budget.consume()
-
-        response = await client.responses.create(
-            model=CRITIC_MODEL_NAME,
-            input=prompt
-        )
+        try:
+            response = await client.responses.create(
+                model=CRITIC_MODEL_NAME,
+                input=prompt
+            )
+        # openai burst rate limit
+        except APIConnectionError:
+            await asyncio.sleep(3)
+            continue
         out = response.output_text.strip()
         if out == 'A':
             return True
@@ -79,26 +87,31 @@ async def get_critic_choice(a: str, b: str, budget: Budget, max_retries: int) ->
             return False
     raise RuntimeError("Critic failed to return valid A/B after retries")
 
-async def batch_judge(pairs: tuple[str, str], budget: Budget, max_retries: int):
+async def batch_judge_text(pairs: tuple[str, str], budget: Budget, max_retries: int):
     tasks = [
         get_critic_choice(a, b, budget, max_retries)
         for a, b in pairs
     ]
     return await asyncio.gather(*tasks, return_exceptions=True)
 
+async def batch_judge(pairs: list[tuple[int, int]], responses: list[dict], budget: Budget, max_retries: int):
+    text_pairs = [(responses[i]["text"], responses[j]["text"]) for i, j in pairs]
+    return await batch_judge_text(text_pairs, budget, max_retries)
 
 if __name__ == "__main__":
     parser = HfArgumentParser(ScriptArguments)
     script_args, = parser.parse_args_into_dataclasses()
     if script_args.run_name is None:
         script_args.run_name = datetime.now().strftime("%Y%m%d%H%M%S")
+    assert script_args.num_candidates >= 2 * script_args.training_pairs
+    assert script_args.pair_mining_rounds <= script_args.num_candidates * (script_args.num_candidates - 1) // 2
     os.makedirs(script_args.log_dir, exist_ok=True)
 
     # default params
     ppo_config = PPOConfig(
         learning_rate=5e-6,
-        batch_size=8,
-        mini_batch_size=4,
+        batch_size=2 * script_args.training_pairs,
+        mini_batch_size=2 * script_args.training_pairs,
         ppo_epochs=2
     )
     lora_config = LoraConfig(
@@ -137,10 +150,10 @@ if __name__ == "__main__":
         prompt_tensor = torch.tensor(prompt_ids, dtype=torch.long, device=device)
 
         response_tensors = trainer.generate(
-            [prompt_tensor] * trainer.config.batch_size,
+            [prompt_tensor] * script_args.num_candidates,
             max_new_tokens=script_args.max_work_tokens,
             # default values
-            temperature=0.7,
+            temperature=0.9,
             do_sample=True,
             top_p=1.0,
             top_k=0,
@@ -154,39 +167,60 @@ if __name__ == "__main__":
             if whitespace_ratio(r) > script_args.whitespace_ratio or \
                 weird_unicode_ratio(r) > script_args.weird_unicode_ratio:
                 continue
-            responses.append(r)
+            responses.append({"tensor": r_ids, "text": r, "score": 0})
+        if len(responses) < len(response_tensors):
+            print_log(f"step {step} warning: filtered {len(response_tensors) - len(responses)} responses")
 
-        pair_range = range(0, len(responses) // 2 * 2, 2)
-        tensor_pairs = [(response_tensors[i], response_tensors[i + 1]) for i in pair_range]
-        text_pairs = [(responses[i], responses[i + 1]) for i in pair_range]
+        # pair mining
+        N = len(responses)
+        all_pairs = [(i, j) for i in range(N) for j in range(i + 1, N)]
+        random.shuffle(all_pairs)
+        results = asyncio.run(batch_judge(
+            all_pairs[:script_args.pair_mining_rounds], responses, budget, script_args.critic_max_retries))
+        pair_mining_result = {p: is_a_winner for p, is_a_winner in zip(all_pairs, results) 
+            if not isinstance(is_a_winner, RuntimeError)}
+        if len(pair_mining_result) < script_args.pair_mining_rounds:
+            print_log(f"step {step} warning: lost {N - len(pair_mining_result)} pairs in pair mining")\
 
-        results = asyncio.run(batch_judge(text_pairs, budget, script_args.critic_max_retries))
+        for (i, j), is_a_winner in pair_mining_result.items():
+            if is_a_winner:
+                responses[i]["score"] += 1
+                responses[j]["score"] -= 1
+            else:
+                responses[i]["score"] -= 1
+                responses[j]["score"] += 1
+
+        sorted_index = np.argsort([r["score"] for r in responses]).tolist()
+        training_pairs = [(sorted_index[-(i + 1)], sorted_index[i]) for i in range(script_args.training_pairs)]
+        # retrieve results for same pairs
+        training_pair_results = {p: pair_mining_result[p] for p in training_pairs if p in pair_mining_result}
+        pairs_to_judge = [p for p in training_pairs if p not in training_pair_results]
+        results = asyncio.run(batch_judge(pairs_to_judge, responses, budget, script_args.critic_max_retries))
+        for p, is_a_winner in zip(pairs_to_judge, results):
+            if not isinstance(is_a_winner, RuntimeError):
+                training_pair_results[p] = is_a_winner
+        if len(training_pair_results) == 0:
+            print_log(f"step {step} failed: no valid critic judgements")
+            continue
+        if len(training_pair_results) < len(training_pairs):
+            print_log(f"step {step} warning: lost {len(training_pairs) - len(training_pair_results)} training pairs")
 
         kept_response_tensors = []
         rewards = []
 
         result_jsonl = []
 
-        for text_pair, tensor_pair, is_a_winner in zip(text_pairs, tensor_pairs, results):
-            if isinstance(is_a_winner, RuntimeError):
-                continue
-
-            assert isinstance(is_a_winner, bool)
-
-            kept_response_tensors.append(tensor_pair[0])
-            kept_response_tensors.append(tensor_pair[1])
+        for (i, j), is_a_winner in training_pair_results.items():
+            kept_response_tensors.append(responses[i]["tensor"])
+            kept_response_tensors.append(responses[j]["tensor"])
 
             if is_a_winner:
                 rewards.extend([1.0, -1.0])
             else:
                 rewards.extend([-1.0, 1.0])
 
-            result_jsonl.append(json.dumps(
-                dict(step=step, a=text_pair[0], b=text_pair[1], is_a_winner=is_a_winner)))
-
-        if not rewards:
-            print(f"step {step} failed: no valid critic judgements")
-            continue
+            result_jsonl.append(json.dumps({
+                "step": step, "a": responses[i]["text"], "b": responses[j]["text"], "is_a_winner": is_a_winner}))
 
         with open(f"{script_args.log_dir}/result_{script_args.run_name}.jsonl", "a") as f:
             for l in result_jsonl:
