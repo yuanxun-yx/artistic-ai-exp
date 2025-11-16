@@ -2,6 +2,7 @@ import asyncio
 from datetime import datetime
 import os
 import json
+from typing import Callable
 import torch
 import numpy as np
 from trl import PPOTrainer, PPOConfig, AutoModelForCausalLMWithValueHead
@@ -22,10 +23,12 @@ class ScriptArguments:
     critic_max_retries: int = 3
     critic_budget: int = 500
     max_work_tokens: int = 192
-    num_steps: int = 100
-    logging_steps: int = 10
+    num_steps: int = 40
+    logging_steps: int = 1
     log_dir: str = "logs"
     run_name: str = None
+    whitespace_ratio: float = 0.6
+    weird_unicode_ratio: float = 0.01
 
 class Budget:
     def __init__(self, max_calls: int):
@@ -41,6 +44,17 @@ class Budget:
 
 def print_log(msg: str):
     print(f"[{datetime.now().isoformat()}] {msg}")
+
+def get_char_ratio(s: str, func: Callable[[str], bool]) -> float:
+    total = len(s)
+    non_ws = sum(1 for ch in s if func(ch))
+    return non_ws / total if total > 0 else 0.0
+
+def whitespace_ratio(s: str) -> float:
+    return get_char_ratio(s, lambda ch: ch.isspace())
+
+def weird_unicode_ratio(s: str) -> float:
+    return get_char_ratio(s, lambda ch: ch in ["\ufffd"])
 
 # critic: ChatGPT
 
@@ -83,7 +97,7 @@ if __name__ == "__main__":
     # default params
     ppo_config = PPOConfig(
         learning_rate=5e-6,
-        batch_size=4,
+        batch_size=8,
         mini_batch_size=4,
         ppo_epochs=2
     )
@@ -126,7 +140,7 @@ if __name__ == "__main__":
             [prompt_tensor] * trainer.config.batch_size,
             max_new_tokens=script_args.max_work_tokens,
             # default values
-            temperature=1.0,
+            temperature=0.7,
             do_sample=True,
             top_p=1.0,
             top_k=0,
@@ -136,9 +150,13 @@ if __name__ == "__main__":
         responses = []
         for r_ids in response_tensors:
             gen_ids = r_ids[len(prompt_ids):]
-            responses.append(tokenizer.decode(gen_ids, skip_special_tokens=True).lstrip())
+            r = tokenizer.decode(gen_ids, skip_special_tokens=True).lstrip()
+            if whitespace_ratio(r) > script_args.whitespace_ratio or \
+                weird_unicode_ratio(r) > script_args.weird_unicode_ratio:
+                continue
+            responses.append(r)
 
-        pair_range = range(0, len(responses), 2)
+        pair_range = range(0, len(responses) // 2 * 2, 2)
         tensor_pairs = [(response_tensors[i], response_tensors[i + 1]) for i in pair_range]
         text_pairs = [(responses[i], responses[i + 1]) for i in pair_range]
 
