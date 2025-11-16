@@ -21,8 +21,8 @@ with open("prompts/critic.txt") as f:
 class ScriptArguments:
     critic_max_retries: int = 3
     critic_budget: int = 500
-    max_work_tokens: int = 320
-    num_steps: int = 200
+    max_work_tokens: int = 192
+    num_steps: int = 100
     logging_steps: int = 10
     log_dir: str = "logs"
     run_name: str = None
@@ -82,7 +82,7 @@ if __name__ == "__main__":
 
     # default params
     ppo_config = PPOConfig(
-        learning_rate=1e-5,
+        learning_rate=5e-6,
         batch_size=4,
         mini_batch_size=4,
         ppo_epochs=2
@@ -127,7 +127,11 @@ if __name__ == "__main__":
             max_new_tokens=script_args.max_work_tokens,
             # default values
             temperature=1.0,
-            top_p=0.9
+            do_sample=True,
+            top_p=1.0,
+            top_k=0,
+            pad_token_id=trainer.tokenizer.pad_token_id,
+            eos_token_id=trainer.tokenizer.eos_token_id
         )
         responses = []
         for r_ids in response_tensors:
