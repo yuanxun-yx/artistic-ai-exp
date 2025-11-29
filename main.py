@@ -33,6 +33,7 @@ class ScriptArguments:
     pair_mining_rounds: int = 10
     num_candidates: int = 8
     training_pairs: int = 2
+    pair_mining: bool = False
 
 class Budget:
     def __init__(self, max_calls: int):
@@ -103,8 +104,12 @@ if __name__ == "__main__":
     script_args, = parser.parse_args_into_dataclasses()
     if script_args.run_name is None:
         script_args.run_name = datetime.now().strftime("%Y%m%d%H%M%S")
-    assert script_args.num_candidates >= 2 * script_args.training_pairs
-    assert script_args.pair_mining_rounds <= script_args.num_candidates * (script_args.num_candidates - 1) // 2
+    if script_args.pair_mining:
+        assert script_args.num_candidates >= 2 * script_args.training_pairs
+        assert script_args.pair_mining_rounds <= script_args.num_candidates * (script_args.num_candidates - 1) // 2
+        batch_size = 2 * script_args.training_pairs
+    else:
+        batch_size = script_args.num_candidates
     os.makedirs(script_args.log_dir, exist_ok=True)
 
     with open(f"{script_args.log_dir}/param_{script_args.run_name}.json", "w") as f:
@@ -113,8 +118,8 @@ if __name__ == "__main__":
     # default params
     ppo_config = PPOConfig(
         learning_rate=5e-6,
-        batch_size=2 * script_args.training_pairs,
-        mini_batch_size=2 * script_args.training_pairs,
+        batch_size=batch_size,
+        mini_batch_size=batch_size,
         ppo_epochs=2
     )
     lora_config = LoraConfig(
@@ -174,30 +179,36 @@ if __name__ == "__main__":
         if len(responses) < len(response_tensors):
             print_log(f"step {step} warning: filtered {len(response_tensors) - len(responses)} responses")
 
-        # pair mining
         N = len(responses)
-        all_pairs = [(i, j) for i in range(N) for j in range(i + 1, N)]
-        random.shuffle(all_pairs)
-        results = asyncio.run(batch_judge(
-            all_pairs[:script_args.pair_mining_rounds], responses, budget, script_args.critic_max_retries))
-        pair_mining_result = {p: is_a_winner for p, is_a_winner in zip(all_pairs, results) 
-            if not isinstance(is_a_winner, RuntimeError)}
-        if len(pair_mining_result) < script_args.pair_mining_rounds:
-            print_log(f"step {step} warning: lost {N - len(pair_mining_result)} pairs in pair mining")\
+        # pair mining
+        if script_args.pair_mining:
+            all_pairs = [(i, j) for i in range(N) for j in range(i + 1, N)]
+            random.shuffle(all_pairs)
+            all_pairs = all_pairs[:script_args.pair_mining_rounds]
+            results = asyncio.run(batch_judge(all_pairs, responses, budget, script_args.critic_max_retries))
+            pair_mining_result = {p: is_a_winner for p, is_a_winner in zip(all_pairs, results)
+                if not isinstance(is_a_winner, RuntimeError)}
+            if len(pair_mining_result) < len(all_pairs):
+                print_log(f"step {step} warning: "
+                          f"lost {len(all_pairs) - len(pair_mining_result)} pairs in pair mining")
 
-        for (i, j), is_a_winner in pair_mining_result.items():
-            if is_a_winner:
-                responses[i]["score"] += 1
-                responses[j]["score"] -= 1
-            else:
-                responses[i]["score"] -= 1
-                responses[j]["score"] += 1
+            for (i, j), is_a_winner in pair_mining_result.items():
+                if is_a_winner:
+                    responses[i]["score"] += 1
+                    responses[j]["score"] -= 1
+                else:
+                    responses[i]["score"] -= 1
+                    responses[j]["score"] += 1
 
-        sorted_index = np.argsort([r["score"] for r in responses]).tolist()
-        training_pairs = [(sorted_index[-(i + 1)], sorted_index[i]) for i in range(script_args.training_pairs)]
-        # retrieve results for same pairs
-        training_pair_results = {p: pair_mining_result[p] for p in training_pairs if p in pair_mining_result}
-        pairs_to_judge = [p for p in training_pairs if p not in training_pair_results]
+            sorted_index = np.argsort([r["score"] for r in responses]).tolist()
+            training_pairs = [(sorted_index[-(i + 1)], sorted_index[i]) for i in range(script_args.training_pairs)]
+            # retrieve results for same pairs
+            training_pair_results = {p: pair_mining_result[p] for p in training_pairs if p in pair_mining_result}
+            pairs_to_judge = [p for p in training_pairs if p not in training_pair_results]
+        else:
+            training_pair_results = {}
+            pairs_to_judge = [(i, i + 1) for i in range(0, N - 1, 2)]
+
         results = asyncio.run(batch_judge(pairs_to_judge, responses, budget, script_args.critic_max_retries))
         for p, is_a_winner in zip(pairs_to_judge, results):
             if not isinstance(is_a_winner, RuntimeError):
@@ -205,8 +216,8 @@ if __name__ == "__main__":
         if len(training_pair_results) == 0:
             print_log(f"step {step} failed: no valid critic judgements")
             continue
-        if len(training_pair_results) < len(training_pairs):
-            print_log(f"step {step} warning: lost {len(training_pairs) - len(training_pair_results)} training pairs")
+        if len(training_pair_results) < len(pairs_to_judge):
+            print_log(f"step {step} warning: lost {len(pairs_to_judge) - len(training_pair_results)} training pairs")
 
         kept_response_tensors = []
         rewards = []
