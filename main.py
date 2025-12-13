@@ -12,8 +12,6 @@ from openai import AsyncOpenAI, APIConnectionError
 from transformers import HfArgumentParser, AutoTokenizer
 from dataclasses import dataclass
 
-ARTIST_MODEL_NAME = "meta-llama/Meta-Llama-3.1-8B-Instruct"
-CRITIC_MODEL_NAME = "gpt-5.1"
 with open("prompts/artist.txt") as f:
     ARTIST_PROMPT = f.read()
 with open("prompts/critic.txt") as f:
@@ -34,6 +32,9 @@ class ScriptArguments:
     num_candidates: int = 8
     training_pairs: int = 2
     pair_mining: bool = False
+    lora: bool = False
+    artist_model: str = "meta-llama/Meta-Llama-3.1-8B-Instruct"
+    critic_model: str = "gpt-5.1"
 
 class Budget:
     def __init__(self, max_calls: int):
@@ -68,13 +69,13 @@ client = AsyncOpenAI()
 def build_critic_prompt(a: str, b: str) -> str:
     return CRITIC_PROMPT.replace("{{A}}", a).replace("{{B}}", b)
 
-async def get_critic_choice(a: str, b: str, budget: Budget, max_retries: int) -> bool:
+async def get_critic_choice(a: str, b: str, model: str, budget: Budget, max_retries: int) -> bool:
     prompt = build_critic_prompt(a, b)
     for i in range(max_retries):
         await budget.consume()
         try:
             response = await client.responses.create(
-                model=CRITIC_MODEL_NAME,
+                model=model,
                 input=prompt
             )
         # openai burst rate limit
@@ -88,16 +89,16 @@ async def get_critic_choice(a: str, b: str, budget: Budget, max_retries: int) ->
             return False
     raise RuntimeError("Critic failed to return valid A/B after retries")
 
-async def batch_judge_text(pairs: tuple[str, str], budget: Budget, max_retries: int):
+async def batch_judge_text(pairs: tuple[str, str], model: str, budget: Budget, max_retries: int):
     tasks = [
-        get_critic_choice(a, b, budget, max_retries)
+        get_critic_choice(a, b, model, budget, max_retries)
         for a, b in pairs
     ]
     return await asyncio.gather(*tasks, return_exceptions=True)
 
-async def batch_judge(pairs: list[tuple[int, int]], responses: list[dict], budget: Budget, max_retries: int):
+async def batch_judge(pairs: list[tuple[int, int]], responses: list[dict], model: str, budget: Budget, max_retries: int):
     text_pairs = [(responses[i]["text"], responses[j]["text"]) for i, j in pairs]
-    return await batch_judge_text(text_pairs, budget, max_retries)
+    return await batch_judge_text(text_pairs, model, budget, max_retries)
 
 if __name__ == "__main__":
     parser = HfArgumentParser(ScriptArguments)
@@ -130,16 +131,17 @@ if __name__ == "__main__":
         task_type="CAUSAL_LM"
     )
 
-    tokenizer = AutoTokenizer.from_pretrained(ARTIST_MODEL_NAME)
+    tokenizer = AutoTokenizer.from_pretrained(script_args.artist_model)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    policy = AutoModelForCausalLMWithValueHead.from_pretrained(
-        ARTIST_MODEL_NAME,
-        peft_config=lora_config,
-        dtype=torch.bfloat16,
-        device_map="auto"
-    )
+    kwargs = {
+        "dtype": torch.bfloat16,
+        "device_map": "auto"
+    }
+    if script_args.lora:
+        kwargs["peft_config"] = lora_config
+    policy = AutoModelForCausalLMWithValueHead.from_pretrained(script_args.artist_model, **kwargs)
 
     trainer = PPOTrainer(
         config=ppo_config,
@@ -185,7 +187,7 @@ if __name__ == "__main__":
             all_pairs = [(i, j) for i in range(N) for j in range(i + 1, N)]
             random.shuffle(all_pairs)
             all_pairs = all_pairs[:script_args.pair_mining_rounds]
-            results = asyncio.run(batch_judge(all_pairs, responses, budget, script_args.critic_max_retries))
+            results = asyncio.run(batch_judge(all_pairs, responses, script_args.critic_model, budget, script_args.critic_max_retries))
             pair_mining_result = {p: is_a_winner for p, is_a_winner in zip(all_pairs, results)
                 if not isinstance(is_a_winner, RuntimeError)}
             if len(pair_mining_result) < len(all_pairs):
@@ -209,7 +211,7 @@ if __name__ == "__main__":
             training_pair_results = {}
             pairs_to_judge = [(i, i + 1) for i in range(0, N - 1, 2)]
 
-        results = asyncio.run(batch_judge(pairs_to_judge, responses, budget, script_args.critic_max_retries))
+        results = asyncio.run(batch_judge(pairs_to_judge, responses, script_args.critic_model, budget, script_args.critic_max_retries))
         for p, is_a_winner in zip(pairs_to_judge, results):
             if not isinstance(is_a_winner, RuntimeError):
                 training_pair_results[p] = is_a_winner
