@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime
 import os
+from os.path import join
 import json
 import random
 from typing import Callable
@@ -10,7 +11,7 @@ from trl import PPOTrainer, PPOConfig, AutoModelForCausalLMWithValueHead
 from peft import LoraConfig
 from openai import AsyncOpenAI, APIConnectionError
 from transformers import HfArgumentParser, AutoTokenizer
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 with open("prompts/artist.txt") as f:
     ARTIST_PROMPT = f.read()
@@ -111,10 +112,11 @@ if __name__ == "__main__":
         batch_size = 2 * script_args.training_pairs
     else:
         batch_size = script_args.num_candidates
-    os.makedirs(script_args.log_dir, exist_ok=True)
+    run_dir = join(script_args.log_dir, script_args.run_name)
+    os.makedirs(run_dir, exist_ok=True)
 
-    with open(f"{script_args.log_dir}/param_{script_args.run_name}.json", "w") as f:
-        json.dump(vars(script_args), f)
+    with open(join(run_dir, "config.json"), "w") as f:
+        json.dump(asdict(script_args), f)
 
     # default params
     ppo_config = PPOConfig(
@@ -238,7 +240,7 @@ if __name__ == "__main__":
             result_jsonl.append(json.dumps({
                 "step": step, "a": responses[i]["text"], "b": responses[j]["text"], "is_a_winner": is_a_winner}))
 
-        with open(f"{script_args.log_dir}/result_{script_args.run_name}.jsonl", "a") as f:
+        with open(join(run_dir, "result.jsonl"), "a") as f:
             for l in result_jsonl:
                 f.write(l + "\n")
 
@@ -250,7 +252,7 @@ if __name__ == "__main__":
             if isinstance(v, np.ndarray):
                 stats[k] = v.tolist()
 
-        with open(f"{script_args.log_dir}/stat_{script_args.run_name}.jsonl", "a") as f:
+        with open(join(run_dir, "stat.jsonl"), "a") as f:
             json.dump(stats, f)
             f.write("\n")
 
