@@ -42,7 +42,8 @@ class ScriptArguments:
 
 class Budget:
     def __init__(self, max_calls: int):
-        assert max_calls > 0
+        if max_calls <= 0:
+            raise ValueError("max_calls should be > 0")
         self.remaining = max_calls
         self._lock = asyncio.Lock()
 
@@ -124,11 +125,12 @@ if __name__ == "__main__":
     if script_args.run_name is None:
         script_args.run_name = datetime.now().strftime("%Y%m%d%H%M%S")
     if script_args.pair_mining:
-        assert script_args.num_candidates >= 2 * script_args.training_pairs
-        assert (
-            script_args.pair_mining_rounds
-            <= script_args.num_candidates * (script_args.num_candidates - 1) // 2
-        )
+        expected = 2 * script_args.training_pairs
+        if script_args.num_candidates < expected:
+            raise ValueError(f"num_candidates should be >= {expected}")
+        expected = script_args.num_candidates * (script_args.num_candidates - 1) // 2
+        if script_args.pair_mining_rounds > expected:
+            raise ValueError(f"pair_mining rounds should be <= {expected}")
         batch_size = 2 * script_args.training_pairs
     else:
         batch_size = script_args.num_candidates
