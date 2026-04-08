@@ -6,3 +6,8 @@ dependencies = [
     "openai>=2.8",
     "trl[peft]>=0.11,<0.12",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "ruff"
+]
