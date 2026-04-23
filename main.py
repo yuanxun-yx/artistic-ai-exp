@@ -16,11 +16,6 @@ from rich.progress import track
 from transformers import AutoTokenizer, HfArgumentParser
 from trl import AutoModelForCausalLMWithValueHead, PPOConfig, PPOTrainer
 
-with open("prompts/artist.txt") as f:
-    ARTIST_PROMPT = f.read()
-with open("prompts/critic.txt") as f:
-    CRITIC_PROMPT = f.read()
-
 logger = logging.getLogger(__name__)
 
 
@@ -76,18 +71,23 @@ def weird_unicode_ratio(s: str) -> float:
 client = AsyncOpenAI()
 
 
-def build_critic_prompt(a: str, b: str) -> str:
-    return CRITIC_PROMPT.replace("{{A}}", a).replace("{{B}}", b)
+def build_critic_prompt(prompt: str, a: str, b: str) -> str:
+    return prompt.replace("{{A}}", a).replace("{{B}}", b)
 
 
 async def get_critic_choice(
-    a: str, b: str, model: str, budget: Budget, max_retries: int
+    prompt: str,
+    a: str,
+    b: str,
+    model: str,
+    budget: Budget,
+    max_retries: int,
 ) -> bool:
-    prompt = build_critic_prompt(a, b)
+    full_prompt = build_critic_prompt(prompt=prompt, a=a, b=b)
     for i in range(max_retries):
         await budget.consume()
         try:
-            response = await client.responses.create(model=model, input=prompt)
+            response = await client.responses.create(model=model, input=full_prompt)
         # openai burst rate limit
         except APIConnectionError:
             await asyncio.sleep(2**i * (1 + random.random() * 0.1))
@@ -101,13 +101,28 @@ async def get_critic_choice(
 
 
 async def batch_judge_text(
-    pairs: tuple[str, str], model: str, budget: Budget, max_retries: int
+    prompt: str,
+    pairs: tuple[str, str],
+    model: str,
+    budget: Budget,
+    max_retries: int,
 ):
-    tasks = [get_critic_choice(a, b, model, budget, max_retries) for a, b in pairs]
+    tasks = [
+        get_critic_choice(
+            prompt=prompt,
+            a=a,
+            b=b,
+            model=model,
+            budget=budget,
+            max_retries=max_retries,
+        )
+        for a, b in pairs
+    ]
     return await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def batch_judge(
+    prompt: str,
     pairs: list[tuple[int, int]],
     responses: list[dict],
     model: str,
@@ -115,7 +130,13 @@ async def batch_judge(
     max_retries: int,
 ):
     text_pairs = [(responses[i]["text"], responses[j]["text"]) for i, j in pairs]
-    return await batch_judge_text(text_pairs, model, budget, max_retries)
+    return await batch_judge_text(
+        prompt=prompt,
+        pairs=text_pairs,
+        model=model,
+        budget=budget,
+        max_retries=max_retries,
+    )
 
 
 def main():
@@ -156,6 +177,11 @@ def main():
     with open(run_dir / "config.json", "w") as f:
         json.dump(asdict(script_args), f)
 
+    with open("prompts/artist.txt") as f:
+        artist_prompt = f.read()
+    with open("prompts/critic.txt") as f:
+        critic_prompt = f.read()
+
     # default params
     ppo_config = PPOConfig(
         learning_rate=5e-6,
@@ -186,7 +212,7 @@ def main():
 
     for step in track(range(script_args.num_steps), description="PPO Training..."):
         # generate pairs
-        prompt_ids = trainer.tokenizer(ARTIST_PROMPT, padding=False, truncation=True)[
+        prompt_ids = trainer.tokenizer(artist_prompt, padding=False, truncation=True)[
             "input_ids"
         ]
         prompt_tensor = torch.tensor(prompt_ids, dtype=torch.long, device=device)
@@ -270,11 +296,12 @@ def main():
 
         results = asyncio.run(
             batch_judge(
-                pairs_to_judge,
-                responses,
-                script_args.critic_model,
-                budget,
-                script_args.critic_max_retries,
+                prompt=critic_prompt,
+                pairs=pairs_to_judge,
+                responses=responses,
+                model=script_args.critic_model,
+                budget=budget,
+                max_retries=script_args.critic_max_retries,
             )
         )
         for p, is_a_winner in zip(pairs_to_judge, results):
