@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import random
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -10,6 +11,8 @@ import numpy as np
 import torch
 from openai import APIConnectionError, AsyncOpenAI
 from peft import LoraConfig
+from rich.logging import RichHandler
+from rich.progress import track
 from transformers import AutoTokenizer, HfArgumentParser
 from trl import AutoModelForCausalLMWithValueHead, PPOConfig, PPOTrainer
 
@@ -18,6 +21,8 @@ with open("prompts/artist.txt") as f:
 with open("prompts/critic.txt") as f:
     CRITIC_PROMPT = f.read()
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class ScriptArguments:
@@ -25,8 +30,7 @@ class ScriptArguments:
     critic_budget: int = 500
     max_work_tokens: int = 192
     num_steps: int = 40
-    logging_steps: int = 1
-    log_dir: str = "logs"
+    result_dir: str = "result"
     run_name: str = None
     whitespace_ratio: float = 0.6
     weird_unicode_ratio: float = 0.01
@@ -51,10 +55,6 @@ class Budget:
             if self.remaining <= 0:
                 raise RuntimeError("Budget exhausted")
             self.remaining -= 1
-
-
-def print_log(msg: str):
-    print(f"[{datetime.now().isoformat()}] {msg}")
 
 
 def get_char_ratio(s: str, func: Callable[[str], bool]) -> float:
@@ -119,6 +119,16 @@ async def batch_judge(
 
 
 def main():
+    logging.captureWarnings(True)
+
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.handlers.clear()
+
+    rh = RichHandler()
+    rh.setFormatter(logging.Formatter("%(message)s"))
+    root.addHandler(rh)
+
     parser = HfArgumentParser(ScriptArguments)
     (script_args,) = parser.parse_args_into_dataclasses()
     if script_args.run_name is None:
@@ -133,8 +143,15 @@ def main():
         batch_size = 2 * script_args.training_pairs
     else:
         batch_size = script_args.num_candidates
-    run_dir = Path(script_args.log_dir) / script_args.run_name
+
+    run_dir = Path(script_args.result_dir) / script_args.run_name
     run_dir.mkdir(parents=True, exist_ok=True)
+
+    fh = logging.FileHandler(run_dir / "app.log")
+    fh.setFormatter(
+        logging.Formatter("[%(asctime)s] %(levelname)-8s %(name)s: %(message)s")
+    )
+    root.addHandler(fh)
 
     with open(run_dir / "config.json", "w") as f:
         json.dump(asdict(script_args), f)
@@ -167,7 +184,7 @@ def main():
 
     budget = Budget(max_calls=script_args.critic_budget)
 
-    for step in range(script_args.num_steps):
+    for step in track(range(script_args.num_steps), description="PPO Training..."):
         # generate pairs
         prompt_ids = trainer.tokenizer(ARTIST_PROMPT, padding=False, truncation=True)[
             "input_ids"
@@ -196,8 +213,8 @@ def main():
                 continue
             responses.append({"tensor": r_ids, "text": r, "score": 0})
         if len(responses) < len(response_tensors):
-            print_log(
-                f"step {step} warning: filtered {len(response_tensors) - len(responses)} responses"
+            logger.warning(
+                f"step {step}: filtered {len(response_tensors) - len(responses)} responses"
             )
 
         N = len(responses)
@@ -221,9 +238,8 @@ def main():
                 if not isinstance(is_a_winner, RuntimeError)
             }
             if len(pair_mining_result) < len(all_pairs):
-                print_log(
-                    f"step {step} warning: "
-                    f"lost {len(all_pairs) - len(pair_mining_result)} pairs in pair mining"
+                logger.warning(
+                    f"step {step}: lost {len(all_pairs) - len(pair_mining_result)} pairs in pair mining"
                 )
 
             for (i, j), is_a_winner in pair_mining_result.items():
@@ -265,11 +281,11 @@ def main():
             if not isinstance(is_a_winner, RuntimeError):
                 training_pair_results[p] = is_a_winner
         if len(training_pair_results) == 0:
-            print_log(f"step {step} failed: no valid critic judgements")
+            logger.warning(f"step {step} failed: no valid critic judgements")
             continue
         if len(training_pair_results) < len(pairs_to_judge):
-            print_log(
-                f"step {step} warning: lost {len(pairs_to_judge) - len(training_pair_results)} training pairs"
+            logger.warning(
+                f"step {step}: lost {len(pairs_to_judge) - len(training_pair_results)} training pairs"
             )
 
         kept_response_tensors = []
@@ -314,9 +330,6 @@ def main():
         with open(run_dir / "stat.jsonl", "a") as f:
             json.dump(stats, f)
             f.write("\n")
-
-        if step % script_args.logging_steps == 0:
-            print_log(f"step {step}")
 
 
 if __name__ == "__main__":
