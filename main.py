@@ -42,7 +42,7 @@ class ScriptArguments:
 
 @dataclass
 class Response:
-    tensor: list[int]
+    tensor: torch.Tensor
     text: str
     score: int = 0
 
