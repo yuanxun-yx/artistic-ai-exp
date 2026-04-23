@@ -40,6 +40,13 @@ class ScriptArguments:
     critic_model: str = "gpt-5.1"
 
 
+@dataclass
+class Response:
+    tensor: list[int]
+    text: str
+    score: int = 0
+
+
 def get_char_ratio(s: str, func: Callable[[str], bool]) -> float:
     total = len(s)
     non_ws = sum(1 for ch in s if func(ch))
@@ -90,7 +97,7 @@ async def get_critic_choice(
 
 async def batch_judge_text(
     prompt: str,
-    pairs: tuple[str, str],
+    pairs: list[tuple[str, str]],
     model: str,
     budget: Budget,
     max_retries: int,
@@ -112,12 +119,12 @@ async def batch_judge_text(
 async def batch_judge(
     prompt: str,
     pairs: list[tuple[int, int]],
-    responses: list[dict],
+    responses: list[Response],
     model: str,
     budget: Budget,
     max_retries: int,
 ):
-    text_pairs = [(responses[i]["text"], responses[j]["text"]) for i, j in pairs]
+    text_pairs = [(responses[i].text, responses[j].text) for i, j in pairs]
     return await batch_judge_text(
         prompt=prompt,
         pairs=text_pairs,
@@ -216,7 +223,7 @@ def main():
             pad_token_id=trainer.tokenizer.pad_token_id,
             eos_token_id=trainer.tokenizer.eos_token_id,
         )
-        responses = []
+        responses: list[Response] = []
         for r_ids in response_tensors:
             gen_ids = r_ids[len(prompt_ids) :]
             r = tokenizer.decode(gen_ids, skip_special_tokens=True).lstrip()
@@ -225,7 +232,7 @@ def main():
                 or weird_unicode_ratio(r) > script_args.weird_unicode_ratio
             ):
                 continue
-            responses.append({"tensor": r_ids, "text": r, "score": 0})
+            responses.append(Response(tensor=r_ids, text=r))
         if len(responses) < len(response_tensors):
             logger.warning(
                 f"step {step}: filtered {len(response_tensors) - len(responses)} responses"
@@ -239,11 +246,12 @@ def main():
             all_pairs = all_pairs[: script_args.pair_mining_rounds]
             results = asyncio.run(
                 batch_judge(
-                    all_pairs,
-                    responses,
-                    script_args.critic_model,
-                    budget,
-                    script_args.critic_max_retries,
+                    prompt=critic_prompt,
+                    pairs=all_pairs,
+                    responses=responses,
+                    model=script_args.critic_model,
+                    budget=budget,
+                    max_retries=script_args.critic_max_retries,
                 )
             )
             pair_mining_result = {
@@ -258,13 +266,13 @@ def main():
 
             for (i, j), is_a_winner in pair_mining_result.items():
                 if is_a_winner:
-                    responses[i]["score"] += 1
-                    responses[j]["score"] -= 1
+                    responses[i].score += 1
+                    responses[j].score -= 1
                 else:
-                    responses[i]["score"] -= 1
-                    responses[j]["score"] += 1
+                    responses[i].score -= 1
+                    responses[j].score += 1
 
-            sorted_index = np.argsort([r["score"] for r in responses]).tolist()
+            sorted_index = np.argsort([r.score for r in responses]).tolist()
             training_pairs = [
                 (sorted_index[-(i + 1)], sorted_index[i])
                 for i in range(script_args.training_pairs)
@@ -309,8 +317,8 @@ def main():
         result_jsonl = []
 
         for (i, j), is_a_winner in training_pair_results.items():
-            kept_response_tensors.append(responses[i]["tensor"])
-            kept_response_tensors.append(responses[j]["tensor"])
+            kept_response_tensors.append(responses[i].tensor)
+            kept_response_tensors.append(responses[j].tensor)
 
             if is_a_winner:
                 rewards.extend([1.0, -1.0])
@@ -321,8 +329,8 @@ def main():
                 json.dumps(
                     {
                         "step": step,
-                        "a": responses[i]["text"],
-                        "b": responses[j]["text"],
+                        "a": responses[i].text,
+                        "b": responses[j].text,
                         "is_a_winner": is_a_winner,
                     }
                 )
