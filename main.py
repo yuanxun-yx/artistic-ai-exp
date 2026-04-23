@@ -1,10 +1,9 @@
 import asyncio
 import json
-import os
 import random
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from os.path import join
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -134,10 +133,10 @@ if __name__ == "__main__":
         batch_size = 2 * script_args.training_pairs
     else:
         batch_size = script_args.num_candidates
-    run_dir = join(script_args.log_dir, script_args.run_name)
-    os.makedirs(run_dir, exist_ok=True)
+    run_dir = Path(script_args.log_dir) / script_args.run_name
+    run_dir.mkdir(parents=True, exist_ok=True)
 
-    with open(join(run_dir, "config.json"), "w") as f:
+    with open(run_dir / "config.json", "w") as f:
         json.dump(asdict(script_args), f)
 
     # default params
@@ -298,7 +297,7 @@ if __name__ == "__main__":
                 )
             )
 
-        with open(join(run_dir, "result.jsonl"), "a") as f:
+        with open(run_dir / "result.jsonl", "a") as f:
             for l in result_jsonl:
                 f.write(l + "\n")
 
@@ -312,7 +311,7 @@ if __name__ == "__main__":
             if isinstance(v, np.ndarray):
                 stats[k] = v.tolist()
 
-        with open(join(run_dir, "stat.jsonl"), "a") as f:
+        with open(run_dir / "stat.jsonl", "a") as f:
             json.dump(stats, f)
             f.write("\n")
 
