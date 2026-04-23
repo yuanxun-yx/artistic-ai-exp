@@ -118,7 +118,7 @@ async def batch_judge(
     return await batch_judge_text(text_pairs, model, budget, max_retries)
 
 
-if __name__ == "__main__":
+def main():
     parser = HfArgumentParser(ScriptArguments)
     (script_args,) = parser.parse_args_into_dataclasses()
     if script_args.run_name is None:
@@ -317,3 +317,7 @@ if __name__ == "__main__":
 
         if step % script_args.logging_steps == 0:
             print_log(f"step {step}")
+
+
+if __name__ == "__main__":
+    main()
