@@ -37,7 +37,7 @@ class ScriptArguments:
     pair_mining: bool = False
     lora: bool = False
     artist_model: str = "meta-llama/Meta-Llama-3.1-8B-Instruct"
-    critic_model: str = "gpt-5.1"
+    critic_model: str = "gpt-5.4"
 
 
 @dataclass
