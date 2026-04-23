@@ -16,6 +16,8 @@ from rich.progress import track
 from transformers import AutoTokenizer, HfArgumentParser
 from trl import AutoModelForCausalLMWithValueHead, PPOConfig, PPOTrainer
 
+from budget import Budget
+
 logger = logging.getLogger(__name__)
 
 
@@ -36,20 +38,6 @@ class ScriptArguments:
     lora: bool = False
     artist_model: str = "meta-llama/Meta-Llama-3.1-8B-Instruct"
     critic_model: str = "gpt-5.1"
-
-
-class Budget:
-    def __init__(self, max_calls: int):
-        if max_calls <= 0:
-            raise ValueError("max_calls should be > 0")
-        self.remaining = max_calls
-        self._lock = asyncio.Lock()
-
-    async def consume(self):
-        async with self._lock:
-            if self.remaining <= 0:
-                raise RuntimeError("Budget exhausted")
-            self.remaining -= 1
 
 
 def get_char_ratio(s: str, func: Callable[[str], bool]) -> float:
