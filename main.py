@@ -232,7 +232,7 @@ def main():
                 or weird_unicode_ratio(r) > script_args.weird_unicode_ratio
             ):
                 continue
-            responses.append(Response(tensor=r_ids, text=r))
+            responses.append(Response(tensor=gen_ids, text=r))
         if len(responses) < len(response_tensors):
             logger.warning(
                 f"step {step}: filtered {len(response_tensors) - len(responses)} responses"
