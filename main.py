@@ -1,137 +1,46 @@
-import asyncio
+import argparse
 import json
 import logging
 import random
-from dataclasses import asdict, dataclass
+import tomllib
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
+import time
 
-import numpy as np
-import torch
-from openai import APIConnectionError, AsyncOpenAI
-from peft import LoraConfig
+from jinja2 import Environment, FileSystemLoader, StrictUndefined
+from openai import APIConnectionError, OpenAI
 from rich.logging import RichHandler
 from rich.progress import track
-from transformers import AutoTokenizer, HfArgumentParser
-from trl import AutoModelForCausalLMWithValueHead, PPOConfig, PPOTrainer
-
-from budget import Budget
+from transformers import pipeline
 
 logger = logging.getLogger(__name__)
 
-
-@dataclass
-class ScriptArguments:
-    critic_max_retries: int = 3
-    critic_budget: int = 500
-    max_work_tokens: int = 192
-    num_steps: int = 40
-    result_dir: str = "result"
-    run_name: str = None
-    whitespace_ratio: float = 0.6
-    weird_unicode_ratio: float = 0.01
-    pair_mining_rounds: int = 10
-    num_candidates: int = 8
-    training_pairs: int = 2
-    pair_mining: bool = False
-    lora: bool = False
-    artist_model: str = "meta-llama/Meta-Llama-3.1-8B-Instruct"
-    critic_model: str = "gpt-5.4"
-
-
-@dataclass
-class Response:
-    tensor: torch.Tensor
-    text: str
-    score: int = 0
-
-
-def get_char_ratio(s: str, func: Callable[[str], bool]) -> float:
-    total = len(s)
-    non_ws = sum(1 for ch in s if func(ch))
-    return non_ws / total if total > 0 else 0.0
-
-
-def whitespace_ratio(s: str) -> float:
-    return get_char_ratio(s, lambda ch: ch.isspace())
-
-
-def weird_unicode_ratio(s: str) -> float:
-    return get_char_ratio(s, lambda ch: ch in ["\ufffd"])
-
-
 # critic: ChatGPT
 
-client = AsyncOpenAI()
+client = OpenAI()
 
 
-def build_critic_prompt(prompt: str, a: str, b: str) -> str:
-    return prompt.replace("{{A}}", a).replace("{{B}}", b)
-
-
-async def get_critic_choice(
-    prompt: str,
-    a: str,
-    b: str,
+def get_critic_feedback(
     model: str,
-    budget: Budget,
+    dev_input: str,
+    user_input: str,
     max_retries: int,
-) -> bool:
-    full_prompt = build_critic_prompt(prompt=prompt, a=a, b=b)
+) -> str:
     for i in range(max_retries):
-        await budget.consume()
         try:
-            response = await client.responses.create(model=model, input=full_prompt)
+            response = client.responses.create(
+                model=model,
+                input=[
+                    {"role": "developer", "content": dev_input},
+                    {"role": "user", "content": user_input},
+                ],
+            )
         # openai burst rate limit
         except APIConnectionError:
-            await asyncio.sleep(2**i * (1 + random.random() * 0.1))
+            time.sleep(2**i * (1 + random.random() * 0.1))
             continue
-        out = response.output_text.strip()
-        if out == "A":
-            return True
-        if out == "B":
-            return False
-    raise RuntimeError("Critic failed to return valid A/B after retries")
-
-
-async def batch_judge_text(
-    prompt: str,
-    pairs: list[tuple[str, str]],
-    model: str,
-    budget: Budget,
-    max_retries: int,
-):
-    tasks = [
-        get_critic_choice(
-            prompt=prompt,
-            a=a,
-            b=b,
-            model=model,
-            budget=budget,
-            max_retries=max_retries,
-        )
-        for a, b in pairs
-    ]
-    return await asyncio.gather(*tasks, return_exceptions=True)
-
-
-async def batch_judge(
-    prompt: str,
-    pairs: list[tuple[int, int]],
-    responses: list[Response],
-    model: str,
-    budget: Budget,
-    max_retries: int,
-):
-    text_pairs = [(responses[i].text, responses[j].text) for i, j in pairs]
-    return await batch_judge_text(
-        prompt=prompt,
-        pairs=text_pairs,
-        model=model,
-        budget=budget,
-        max_retries=max_retries,
-    )
+        return response.output_text
+    raise RuntimeError("critic model failed to return feedback after retries")
 
 
 def main():
@@ -145,213 +54,88 @@ def main():
     rh.setFormatter(logging.Formatter("%(message)s"))
     root.addHandler(rh)
 
-    parser = HfArgumentParser(ScriptArguments)
-    (script_args,) = parser.parse_args_into_dataclasses()
-    if script_args.run_name is None:
-        script_args.run_name = datetime.now().strftime("%Y%m%d%H%M%S")
-    if script_args.pair_mining:
-        expected = 2 * script_args.training_pairs
-        if script_args.num_candidates < expected:
-            raise ValueError(f"num_candidates should be >= {expected}")
-        expected = script_args.num_candidates * (script_args.num_candidates - 1) // 2
-        if script_args.pair_mining_rounds > expected:
-            raise ValueError(f"pair_mining rounds should be <= {expected}")
-        batch_size = 2 * script_args.training_pairs
-    else:
-        batch_size = script_args.num_candidates
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=Path, default=Path("config.toml"))
+    args = parser.parse_args()
 
-    run_dir = Path(script_args.result_dir) / script_args.run_name
-    run_dir.mkdir(parents=True, exist_ok=True)
+    if not args.config.is_file():
+        raise FileNotFoundError(f'config file not found: "{args.config}"')
+    with args.config.open("rb") as f:
+        config = tomllib.load(f)
 
-    fh = logging.FileHandler(run_dir / "app.log")
+    output_config = config["output"]
+    output_root = Path(output_config["root"])
+    run_name = output_config.pop("run_name", datetime.now().strftime("%Y%m%d%H%M%S"))
+    run_path = output_root / run_name
+    run_path.mkdir(parents=True, exist_ok=True)
+
+    fh = logging.FileHandler(run_path / "app.log")
     fh.setFormatter(
         logging.Formatter("[%(asctime)s] %(levelname)-8s %(name)s: %(message)s")
     )
     root.addHandler(fh)
 
-    with open(run_dir / "config.json", "w") as f:
-        json.dump(asdict(script_args), f)
+    with open(run_path / "config.json", "w") as f:
+        json.dump(config, f)
 
-    with open("prompts/artist.txt") as f:
-        artist_prompt = f.read()
-    with open("prompts/critic.txt") as f:
-        critic_prompt = f.read()
+    result_path = run_path / "result.jsonl"
 
-    # default params
-    ppo_config = PPOConfig(
-        learning_rate=5e-6,
-        batch_size=batch_size,
-        mini_batch_size=batch_size,
-        ppo_epochs=2,
+    env = Environment(
+        loader=FileSystemLoader("prompts"), autoescape=False, undefined=StrictUndefined
     )
-    lora_config = LoraConfig(
-        r=16, lora_alpha=16, lora_dropout=0.05, bias="none", task_type="CAUSAL_LM"
+    artist_prompt_init = env.get_template("artist/init.jinja")
+    artist_prompt_revise = env.get_template("artist/revise.jinja")
+    critic_prompt_user = env.get_template("critic/user.jinja")
+    with open("prompts/critic/dev.txt") as f:
+        critic_prompt_dev = f.read()
+
+    artist_config = config["artist"]
+    pipe = pipeline(model=artist_config["model"])
+
+    generate_config = artist_config["generate"]
+    max_new_tokens = generate_config["max_new_tokens"]
+    low = int(max_new_tokens * 0.45)
+    high = int(max_new_tokens * 0.65)
+    artist_prompt = artist_prompt_init.render(words_low=low, words_high=high)
+    model_output = pipe(
+        [{"role": "user", "content": artist_prompt}],
+        return_full_text=False,
+        **generate_config,
     )
+    model_output = model_output[0]["generated_text"].lstrip()
 
-    tokenizer = AutoTokenizer.from_pretrained(script_args.artist_model)
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    with open(result_path, "a") as f:
+        json.dump({"step": -1, "artist": model_output}, f)
+        f.write("\n")
 
-    kwargs = {"dtype": torch.bfloat16, "device_map": "auto"}
-    if script_args.lora:
-        kwargs["peft_config"] = lora_config
-    policy = AutoModelForCausalLMWithValueHead.from_pretrained(
-        script_args.artist_model, **kwargs
-    )
-
-    trainer = PPOTrainer(config=ppo_config, model=policy, tokenizer=tokenizer)
-
-    device = next(trainer.model.parameters()).device
-
-    budget = Budget(max_calls=script_args.critic_budget)
-
-    for step in track(range(script_args.num_steps), description="PPO Training..."):
-        # generate pairs
-        prompt_ids = trainer.tokenizer(artist_prompt, padding=False, truncation=True)[
-            "input_ids"
-        ]
-        prompt_tensor = torch.tensor(prompt_ids, dtype=torch.long, device=device)
-
-        response_tensors = trainer.generate(
-            [prompt_tensor] * script_args.num_candidates,
-            max_new_tokens=script_args.max_work_tokens,
-            # default values
-            temperature=0.9,
-            do_sample=True,
-            top_p=1.0,
-            top_k=0,
-            pad_token_id=trainer.tokenizer.pad_token_id,
-            eos_token_id=trainer.tokenizer.eos_token_id,
+    exp_config = config["experiment"]
+    for step in track(range(exp_config["num_steps"]), description="Looping..."):
+        critic_config = config["critic"]
+        critic_feedback = get_critic_feedback(
+            model=critic_config["model"],
+            dev_input=critic_prompt_dev,
+            user_input=critic_prompt_user.render(text=model_output),
+            max_retries=critic_config["max_retries"],
         )
-        responses: list[Response] = []
-        for r_ids in response_tensors:
-            gen_ids = r_ids[len(prompt_ids) :]
-            r = tokenizer.decode(gen_ids, skip_special_tokens=True).lstrip()
-            if (
-                whitespace_ratio(r) > script_args.whitespace_ratio
-                or weird_unicode_ratio(r) > script_args.weird_unicode_ratio
-            ):
-                continue
-            responses.append(Response(tensor=gen_ids, text=r))
-        if len(responses) < len(response_tensors):
-            logger.warning(
-                f"step {step}: filtered {len(response_tensors) - len(responses)} responses"
-            )
 
-        N = len(responses)
-        # pair mining
-        if script_args.pair_mining:
-            all_pairs = [(i, j) for i in range(N) for j in range(i + 1, N)]
-            random.shuffle(all_pairs)
-            all_pairs = all_pairs[: script_args.pair_mining_rounds]
-            results = asyncio.run(
-                batch_judge(
-                    prompt=critic_prompt,
-                    pairs=all_pairs,
-                    responses=responses,
-                    model=script_args.critic_model,
-                    budget=budget,
-                    max_retries=script_args.critic_max_retries,
-                )
-            )
-            pair_mining_result = {
-                p: is_a_winner
-                for p, is_a_winner in zip(all_pairs, results)
-                if not isinstance(is_a_winner, RuntimeError)
-            }
-            if len(pair_mining_result) < len(all_pairs):
-                logger.warning(
-                    f"step {step}: lost {len(all_pairs) - len(pair_mining_result)} pairs in pair mining"
-                )
-
-            for (i, j), is_a_winner in pair_mining_result.items():
-                if is_a_winner:
-                    responses[i].score += 1
-                    responses[j].score -= 1
-                else:
-                    responses[i].score -= 1
-                    responses[j].score += 1
-
-            sorted_index = np.argsort([r.score for r in responses]).tolist()
-            training_pairs = [
-                (sorted_index[-(i + 1)], sorted_index[i])
-                for i in range(script_args.training_pairs)
-            ]
-            # retrieve results for same pairs
-            training_pair_results = {
-                p: pair_mining_result[p]
-                for p in training_pairs
-                if p in pair_mining_result
-            }
-            pairs_to_judge = [
-                p for p in training_pairs if p not in training_pair_results
-            ]
-        else:
-            training_pair_results = {}
-            pairs_to_judge = [(i, i + 1) for i in range(0, N - 1, 2)]
-
-        results = asyncio.run(
-            batch_judge(
-                prompt=critic_prompt,
-                pairs=pairs_to_judge,
-                responses=responses,
-                model=script_args.critic_model,
-                budget=budget,
-                max_retries=script_args.critic_max_retries,
-            )
+        artist_prompt = artist_prompt_revise.render(
+            current=model_output,
+            feedback=critic_feedback,
+            words_low=low,
+            words_high=high,
         )
-        for p, is_a_winner in zip(pairs_to_judge, results):
-            if not isinstance(is_a_winner, RuntimeError):
-                training_pair_results[p] = is_a_winner
-        if len(training_pair_results) == 0:
-            logger.warning(f"step {step} failed: no valid critic judgements")
-            continue
-        if len(training_pair_results) < len(pairs_to_judge):
-            logger.warning(
-                f"step {step}: lost {len(pairs_to_judge) - len(training_pair_results)} training pairs"
+
+        model_output = pipe(
+            [{"role": "user", "content": artist_prompt}],
+            return_full_text=False,
+            **generate_config,
+        )
+        model_output = model_output[0]["generated_text"].lstrip()
+
+        with open(result_path, "a") as f:
+            json.dump(
+                {"step": step, "critic": critic_feedback, "artist": model_output}, f
             )
-
-        kept_response_tensors = []
-        rewards = []
-
-        result_jsonl = []
-
-        for (i, j), is_a_winner in training_pair_results.items():
-            kept_response_tensors.append(responses[i].tensor)
-            kept_response_tensors.append(responses[j].tensor)
-
-            if is_a_winner:
-                rewards.extend([1.0, -1.0])
-            else:
-                rewards.extend([-1.0, 1.0])
-
-            result_jsonl.append(
-                json.dumps(
-                    {
-                        "step": step,
-                        "a": responses[i].text,
-                        "b": responses[j].text,
-                        "is_a_winner": is_a_winner,
-                    }
-                )
-            )
-
-        with open(run_dir / "result.jsonl", "a") as f:
-            for l in result_jsonl:
-                f.write(l + "\n")
-
-        query_tensors = [prompt_tensor] * len(kept_response_tensors)
-        reward_tensors = [
-            torch.tensor([r], dtype=torch.float32, device=device) for r in rewards
-        ]
-
-        stats = trainer.step(query_tensors, kept_response_tensors, reward_tensors)
-        for k, v in stats.items():
-            if isinstance(v, np.ndarray):
-                stats[k] = v.tolist()
-
-        with open(run_dir / "stat.jsonl", "a") as f:
-            json.dump(stats, f)
             f.write("\n")
 
 

@@ -1,0 +1,17 @@
+[output]
+root = "result"
+#run = "run"
+
+[experiment]
+seed = 42
+num_steps = 5
+
+[critic]
+model = "gpt-5.5-pro"
+max_retries = 3
+
+[artist]
+model = "meta-llama/Meta-Llama-3.1-8B-Instruct"
+
+[artist.generate]
+max_new_tokens = 300
