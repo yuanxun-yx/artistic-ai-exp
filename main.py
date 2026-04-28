@@ -9,10 +9,10 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from openai import APIConnectionError, AsyncOpenAI
+from peft import LoraConfig
 from rich.logging import RichHandler
 from rich.progress import track
 from transformers import pipeline, set_seed
-from peft import LoraConfig
 
 logger = logging.getLogger(__name__)
 
@@ -131,27 +131,18 @@ def main():
                 )
             )
 
-            lists = critic_rank.split("\n")
-            if len(lists) != 2:
-                logger.warning(
-                    f"step {step}: critic returned {len(lists)} lists, should be 2"
-                )
-                continue
-
-            top = lists[0]
-            top = [int(i) for i in top.split(",")]
-            if len(top) != top_k:
-                logger.warning(
-                    f"step {step}: top index length {len(top)}, should be {top_k}"
-                )
-                continue
-
-            bottom = lists[1]
-            bottom = [int(i) for i in bottom.split(",")]
-            if len(bottom) != bottom_k:
-                logger.warning(
-                    f"step {step}: bottom index length {len(bottom)}, should be {bottom_k}"
-                )
+            try:
+                top, bottom = critic_rank.split("\n")
+                top = [int(i) for i in top.split(",")]
+                if len(top) != top_k:
+                    raise ValueError(f"top index length {len(top)}, should be {top_k}")
+                bottom = [int(i) for i in bottom.split(",")]
+                if len(bottom) != bottom_k:
+                    raise ValueError(
+                        f"bottom index length {len(bottom)}, should be {bottom_k}"
+                    )
+            except Exception as e:
+                logger.warning(f"step {step}: critic model return format invalid ({e})")
                 continue
 
     elif mode == "textual":
