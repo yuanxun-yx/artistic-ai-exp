@@ -11,8 +11,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from openai import APIConnectionError, AsyncOpenAI
 from rich.logging import RichHandler
 from rich.progress import track
-from transformers import pipeline
-from trl import DPOTrainer
+from transformers import pipeline, set_seed
 from peft import LoraConfig
 
 logger = logging.getLogger(__name__)
@@ -78,6 +77,7 @@ def main():
     root.addHandler(fh)
 
     exp_config = config["experiment"]
+    set_seed(exp_config["seed"])
     mode = exp_config["mode"]
     if mode not in ["scalar", "textual"]:
         raise ValueError(f"unknown mode: {mode}")
