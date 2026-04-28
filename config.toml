@@ -15,3 +15,4 @@ model = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 
 [artist.generate]
 max_new_tokens = 300
+temperature = 1.0
