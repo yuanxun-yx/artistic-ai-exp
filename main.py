@@ -33,7 +33,7 @@ def main():
 
     output_config = config["output"]
     output_root = Path(output_config["root"])
-    run_name = output_config.pop("run_name", datetime.now().strftime("%Y%m%d%H%M%S"))
+    run_name = output_config.get("run_name", datetime.now().strftime("%Y%m%d%H%M%S"))
     run_path = output_root / run_name
     run_path.mkdir(parents=True, exist_ok=True)
 
