@@ -1,14 +1,14 @@
 import argparse
+import asyncio
 import json
 import logging
 import random
 import tomllib
 from datetime import datetime
 from pathlib import Path
-import time
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
-from openai import APIConnectionError, OpenAI
+from openai import APIConnectionError, AsyncOpenAI
 from rich.logging import RichHandler
 from rich.progress import track
 from transformers import pipeline
@@ -17,10 +17,10 @@ logger = logging.getLogger(__name__)
 
 # critic: ChatGPT
 
-client = OpenAI()
+client = AsyncOpenAI()
 
 
-def get_critic_feedback(
+async def get_critic_feedback(
     model: str,
     dev_input: str,
     user_input: str,
@@ -28,7 +28,7 @@ def get_critic_feedback(
 ) -> str:
     for i in range(max_retries):
         try:
-            response = client.responses.create(
+            response = await client.responses.create(
                 model=model,
                 input=[
                     {"role": "developer", "content": dev_input},
@@ -37,7 +37,7 @@ def get_critic_feedback(
             )
         # openai burst rate limit
         except APIConnectionError:
-            time.sleep(2**i * (1 + random.random() * 0.1))
+            await asyncio.sleep(2**i * (1 + random.random() * 0.1))
             continue
         return response.output_text
     raise RuntimeError("critic model failed to return feedback after retries")
@@ -111,11 +111,13 @@ def main():
     exp_config = config["experiment"]
     for step in track(range(exp_config["num_steps"]), description="Looping..."):
         critic_config = config["critic"]
-        critic_feedback = get_critic_feedback(
-            model=critic_config["model"],
-            dev_input=critic_prompt_dev,
-            user_input=critic_prompt_user.render(text=model_output),
-            max_retries=critic_config["max_retries"],
+        critic_feedback = asyncio.run(
+            get_critic_feedback(
+                model=critic_config["model"],
+                dev_input=critic_prompt_dev,
+                user_input=critic_prompt_user.render(text=model_output),
+                max_retries=critic_config["max_retries"],
+            )
         )
 
         artist_prompt = artist_prompt_revise.render(
