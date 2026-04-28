@@ -12,6 +12,8 @@ from openai import APIConnectionError, AsyncOpenAI
 from rich.logging import RichHandler
 from rich.progress import track
 from transformers import pipeline
+from trl import DPOTrainer
+from peft import LoraConfig
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +22,7 @@ logger = logging.getLogger(__name__)
 client = AsyncOpenAI()
 
 
-async def get_critic_feedback(
+async def get_response(
     model: str,
     dev_input: str,
     user_input: str,
@@ -75,6 +77,11 @@ def main():
     )
     root.addHandler(fh)
 
+    exp_config = config["experiment"]
+    mode = exp_config["mode"]
+    if mode not in ["scalar", "textual"]:
+        raise ValueError(f"unknown mode: {mode}")
+
     with open(run_path / "config.json", "w") as f:
         json.dump(config, f)
 
@@ -85,9 +92,8 @@ def main():
     )
     artist_prompt_init = env.get_template("artist/init.jinja")
     artist_prompt_revise = env.get_template("artist/revise.jinja")
-    critic_prompt_user = env.get_template("critic/user.jinja")
-    with open("prompts/critic/dev.txt") as f:
-        critic_prompt_dev = f.read()
+    critic_prompt_dev = env.get_template(f"critic/{mode}/dev.jinja")
+    critic_prompt_user = env.get_template(f"critic/{mode}/user.jinja")
 
     artist_config = config["artist"]
     pipe = pipeline(model=artist_config["model"])
@@ -97,36 +103,58 @@ def main():
     low = int(max_new_tokens * 0.45)
     high = int(max_new_tokens * 0.65)
     artist_prompt = artist_prompt_init.render(words_low=low, words_high=high)
-    model_output = pipe(
-        [{"role": "user", "content": artist_prompt}],
-        return_full_text=False,
-        **generate_config,
-    )
-    model_output = model_output[0]["generated_text"].lstrip()
 
-    with open(result_path, "a") as f:
-        json.dump({"step": -1, "artist": model_output}, f)
-        f.write("\n")
+    critic_config = config["critic"]
 
-    exp_config = config["experiment"]
-    for step in track(range(exp_config["num_steps"]), description="Looping..."):
-        critic_config = config["critic"]
-        critic_feedback = asyncio.run(
-            get_critic_feedback(
-                model=critic_config["model"],
-                dev_input=critic_prompt_dev,
-                user_input=critic_prompt_user.render(text=model_output),
-                max_retries=critic_config["max_retries"],
+    if mode == "scalar":
+        # trainer = DPOTrainer(model=pipe.model)
+        pairing_config = config["pairing"]
+        top_k = pairing_config["top_k"]
+        bottom_k = pairing_config["bottom_k"]
+
+        for step in track(range(exp_config["num_steps"]), description="Looping..."):
+            model_output = pipe(
+                [{"role": "user", "content": artist_prompt}],
+                return_full_text=False,
+                **generate_config,
             )
-        )
+            model_output = [o["generated_text"].lstrip() for o in model_output]
 
-        artist_prompt = artist_prompt_revise.render(
-            current=model_output,
-            feedback=critic_feedback,
-            words_low=low,
-            words_high=high,
-        )
+            critic_rank = asyncio.run(
+                get_response(
+                    model=critic_config["model"],
+                    dev_input=critic_prompt_dev.render(
+                        total=len(model_output), top_k=top_k, bottom_k=bottom_k
+                    ),
+                    user_input=critic_prompt_user.render(texts=model_output),
+                    max_retries=critic_config["max_retries"],
+                )
+            )
 
+            lists = critic_rank.split("\n")
+            if len(lists) != 2:
+                logger.warning(
+                    f"step {step}: critic returned {len(lists)} lists, should be 2"
+                )
+                continue
+
+            top = lists[0]
+            top = [int(i) for i in top.split(",")]
+            if len(top) != top_k:
+                logger.warning(
+                    f"step {step}: top index length {len(top)}, should be {top_k}"
+                )
+                continue
+
+            bottom = lists[1]
+            bottom = [int(i) for i in bottom.split(",")]
+            if len(bottom) != bottom_k:
+                logger.warning(
+                    f"step {step}: bottom index length {len(bottom)}, should be {bottom_k}"
+                )
+                continue
+
+    elif mode == "textual":
         model_output = pipe(
             [{"role": "user", "content": artist_prompt}],
             return_full_text=False,
@@ -135,10 +163,43 @@ def main():
         model_output = model_output[0]["generated_text"].lstrip()
 
         with open(result_path, "a") as f:
-            json.dump(
-                {"step": step, "critic": critic_feedback, "artist": model_output}, f
-            )
+            json.dump({"step": 0, "artist": model_output}, f)
             f.write("\n")
+
+        for step in track(range(exp_config["num_steps"]), description="Looping..."):
+            critic_feedback = asyncio.run(
+                get_response(
+                    model=critic_config["model"],
+                    dev_input=critic_prompt_dev,
+                    user_input=critic_prompt_user.render(text=model_output),
+                    max_retries=critic_config["max_retries"],
+                )
+            )
+
+            artist_prompt = artist_prompt_revise.render(
+                current=model_output,
+                feedback=critic_feedback,
+                words_low=low,
+                words_high=high,
+            )
+
+            model_output = pipe(
+                [{"role": "user", "content": artist_prompt}],
+                return_full_text=False,
+                **generate_config,
+            )
+            model_output = model_output[0]["generated_text"].lstrip()
+
+            with open(result_path, "a") as f:
+                json.dump(
+                    {
+                        "step": step + 1,
+                        "critic": critic_feedback,
+                        "artist": model_output,
+                    },
+                    f,
+                )
+                f.write("\n")
 
 
 if __name__ == "__main__":

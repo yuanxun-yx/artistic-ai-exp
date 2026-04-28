@@ -3,8 +3,13 @@ root = "result"
 #run = "run"
 
 [experiment]
+mode = "scalar"
 seed = 42
 num_steps = 5
+
+[pairing]
+top_k = 2
+bottom_k = 2
 
 [critic]
 model = "gpt-5.5-pro"
@@ -16,3 +21,4 @@ model = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 [artist.generate]
 max_new_tokens = 300
 temperature = 1.0
+num_return_sequences = 8

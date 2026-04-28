@@ -1,0 +1,9 @@
+{%- for text in texts -%}
+Text {{ loop.index0 }}:
+<<<BEGIN TEXT>>>
+{{ text }}
+<<<END TEXT>>>
+{%- if not loop.last %}
+
+{% endif -%}
+{%- endfor -%}
