@@ -2,8 +2,10 @@ import json
 import logging
 from pathlib import Path
 
+import torch
 from peft import LoraConfig, get_peft_model
 from rich.progress import track
+from torch.nn.functional import log_softmax, logsigmoid
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from critic import get_response
@@ -13,7 +15,31 @@ from utils import get_jinja_env
 logger = logging.getLogger(__name__)
 
 
+def sequence_log_prob(
+    model: torch.nn.Module,
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor,
+    prompt_len: int,
+) -> torch.Tensor:
+    out = model(input_ids=input_ids, attention_mask=attention_mask)
+    logits = out.logits[:, :-1, :]  # next token predicted
+    labels = input_ids[:, 1:]  # next token actual
+    log_probs = log_softmax(logits, dim=-1)
+    token_log_probs = log_probs.gather(
+        dim=-1,
+        index=labels.unsqueeze(-1),
+    ).squeeze(-1)
+    return token_log_probs[:, prompt_len - 1 :].sum(dim=-1)
+
+
 def loop(config: dict, run_path: Path) -> None:
+    """
+    trl.OnlineDPOTrainer requires a reward model. trl.DPOTrainer doesn't support online training.
+    Therefore, I have to implement preference based online DPO from scratch here.
+    """
+
+    result_path = run_path / "result.jsonl"
+
     env = get_jinja_env("prompts")
     artist_prompt = env.get_template("artist/init.jinja")
     critic_prompt_dev = env.get_template("critic/scalar/dev.jinja")
@@ -22,6 +48,12 @@ def loop(config: dict, run_path: Path) -> None:
     artist_config = config["artist"]
     model_name = artist_config["model"]
     tokenizer = AutoTokenizer.from_pretrained(model_name)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    # from_pretrained() sets model.eval() by default
+    ref_model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto")
+    # make sure reference model is frozen
+    ref_model.requires_grad_(False)
     model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto")
     if "lora" in artist_config:
         lora_config = LoraConfig(**artist_config["lora"])
@@ -40,8 +72,9 @@ def loop(config: dict, run_path: Path) -> None:
         return_tensors="pt",
         add_generation_prompt=True,
     ).to(model.device)
+    prompt_len = artist_prompt["input_ids"].shape[1]
     # remove prompt by string length, consistent with transformers.Pipeline behavior in textual mode
-    prompt_len = len(
+    prompt_str_len = len(
         tokenizer.decode(
             artist_prompt.input_ids[0],
             skip_special_tokens=True,
@@ -55,15 +88,28 @@ def loop(config: dict, run_path: Path) -> None:
     top_k = pairing_config["top_k"]
     bottom_k = pairing_config["bottom_k"]
 
-    exp_config = config["experiment"]
-    for step in track(range(exp_config["num_steps"]), description="Looping..."):
-        model_output = model.generate(**artist_prompt, **generate_config)
+    train_config = config["training"]
+    optimizer = torch.optim.AdamW(
+        params=(p for p in model.parameters() if p.requires_grad),
+        **train_config["optimizer"],
+    )
+
+    for step in track(range(train_config["num_steps"]), description="Looping..."):
+        model.eval()
+        # torch.no_grad() is enabled
+        model_output = model.generate(
+            **artist_prompt,
+            **generate_config,
+            eos_token_id=tokenizer.eos_token_id,
+            pad_token_id=tokenizer.pad_token_id,
+        )
+
         text = tokenizer.decode(
             model_output,
             skip_special_tokens=True,
             clean_up_tokenization_spaces=True,
         )
-        text = [t[prompt_len:].lstrip() for t in text]
+        text = [t[prompt_str_len:].lstrip() for t in text]
 
         critic_rank = get_response(
             model=critic_config["model"],
@@ -87,3 +133,57 @@ def loop(config: dict, run_path: Path) -> None:
         except Exception as e:
             logger.warning(f"step {step}: critic model return format invalid ({e})")
             continue
+
+        model.train()
+        attention_mask = model_output != tokenizer.pad_token_id
+        log_pi = sequence_log_prob(
+            model=model,
+            input_ids=model_output,
+            attention_mask=attention_mask,
+            prompt_len=prompt_len,
+        )
+        with torch.no_grad():
+            log_ref = sequence_log_prob(
+                model=ref_model,
+                input_ids=model_output,
+                attention_mask=attention_mask,
+                prompt_len=prompt_len,
+            )
+
+        pairs = torch.cartesian_prod(
+            torch.as_tensor(top),
+            torch.as_tensor(bottom),
+        ).to(model.device)
+
+        chosen = pairs[:, 0]
+        rejected = pairs[:, 1]
+
+        pi_margin = log_pi[chosen] - log_pi[rejected]
+        ref_margin = log_ref[chosen] - log_ref[rejected]
+        logits = train_config["dpo"]["beta"] * (pi_margin - ref_margin)
+        loss = -logsigmoid(logits).mean()
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        stat = {
+            "loss": loss.item(),
+            "pi_margin": pi_margin.detach().cpu().tolist(),
+            "ref_margin": ref_margin.detach().cpu().tolist(),
+            "logit": logits.detach().cpu().tolist(),
+        }
+
+        logger.info(f"step {step}: {stat}")
+
+        with open(result_path, "a") as f:
+            json.dump(
+                {
+                    "step": step,
+                    "artist": text,
+                    "critic": {"top": top, "bottom": bottom},
+                    "training": stat,
+                },
+                f,
+            )
+            f.write("\n")

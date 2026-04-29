@@ -39,8 +39,7 @@ def loop(config: dict, run_path: Path) -> None:
         json.dump({"step": 0, "artist": model_output}, f)
         f.write("\n")
 
-    exp_config = config["experiment"]
-    for step in track(range(exp_config["num_steps"]), description="Looping..."):
+    for step in track(range(config["training"]["num_steps"]), description="Looping..."):
         critic_feedback = get_response(
             model=critic_config["model"],
             dev_input=critic_prompt_dev,
