@@ -29,6 +29,7 @@ def sequence_log_prob(
         dim=-1,
         index=labels.unsqueeze(-1),
     ).squeeze(-1)
+    token_log_probs *= attention_mask[:, 1:]
     return token_log_probs[:, prompt_len - 1 :].sum(dim=-1)
 
 
