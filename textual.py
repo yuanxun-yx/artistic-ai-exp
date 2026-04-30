@@ -36,10 +36,10 @@ def loop(config: dict, run_path: Path) -> None:
     model_output = model_output[0]["generated_text"].lstrip()
 
     with open(result_path, "a") as f:
-        json.dump({"step": 0, "artist": model_output}, f)
+        json.dump({"epoch": 0, "artist": model_output}, f)
         f.write("\n")
 
-    for step in track(range(config["training"]["num_steps"]), description="Looping..."):
+    for epoch in track(range(config["training"]["num_train_epochs"]), description="Looping..."):
         critic_feedback = get_response(
             model=critic_config["model"],
             dev_input=critic_prompt_dev,
@@ -61,10 +61,10 @@ def loop(config: dict, run_path: Path) -> None:
         )
         model_output = model_output[0]["generated_text"].lstrip()
 
-        with open(result_path, "a") as f:
+        with result_path.open("a") as f:
             json.dump(
                 {
-                    "step": step + 1,
+                    "epoch": epoch + 1,
                     "critic": critic_feedback,
                     "artist": model_output,
                 },

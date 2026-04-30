@@ -1,20 +1,26 @@
 [output]
 root = "result"
-#run = "run"
+#run_name = "run"
 
 [experiment]
 mode = "scalar"
 seed = 42
 
 [training]
-num_steps = 5
-
-[training.optimizer]
-lr = 1e-5
-weight_decay = 0.0
+num_train_epochs = 20
+logging_strategy = "epoch"
+save_strategy = "epoch"
+save_total_limit = 1
 
 [training.dpo]
+gradient_checkpointing = true
+disable_dropout = true
 beta = 0.1
+
+[training.lora]
+r = 16
+lora_alpha = 32
+lora_dropout = 0.05
 
 [pairing]
 top_k = 2
@@ -31,8 +37,3 @@ model = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 max_new_tokens = 300
 temperature = 1.0
 num_return_sequences = 8
-
-[artist.lora]
-r = 16
-lora_alpha = 32
-lora_dropout = 0.05

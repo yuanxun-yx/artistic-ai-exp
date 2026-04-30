@@ -47,7 +47,7 @@ def main():
     set_seed(exp_config["seed"])
 
     with open(run_path / "config.json", "w") as f:
-        json.dump(config, f)
+        json.dump(config, f, indent=2)
 
     mode = exp_config["mode"]
     if mode == "scalar":
