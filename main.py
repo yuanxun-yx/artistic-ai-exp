@@ -1,10 +1,10 @@
-import argparse
 import json
 import logging
 import tomllib
 from datetime import datetime
 from pathlib import Path
 
+from omegaconf import OmegaConf
 from rich.logging import RichHandler
 from transformers import set_seed
 
@@ -22,20 +22,21 @@ def main():
     rh.setFormatter(logging.Formatter("%(message)s"))
     root.addHandler(rh)
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=Path, default=Path("config.toml"))
-    args = parser.parse_args()
+    cli = OmegaConf.from_cli()
 
-    if not args.config.is_file():
-        raise FileNotFoundError(f'config file not found: "{args.config}"')
-    with args.config.open("rb") as f:
-        config = tomllib.load(f)
+    config_path = Path(cli.pop("config", "config.toml"))
+    if not config_path.is_file():
+        raise FileNotFoundError(f'config file not found: "{config_path}"')
+    with config_path.open("rb") as f:
+        base = OmegaConf.create(tomllib.load(f))
 
-    output_config = config["output"]
-    output_root = Path(output_config["root"])
+    config = OmegaConf.merge(base, cli)
+
+    output_config = config.output
+    output_root = Path(output_config.root)
     run_name = output_config.get("run_name", datetime.now().strftime("%Y%m%d%H%M%S"))
     run_path = output_root / run_name
-    run_path.mkdir(parents=True, exist_ok=True)
+    run_path.mkdir(parents=True)
 
     fh = logging.FileHandler(run_path / "app.log")
     fh.setFormatter(
@@ -43,13 +44,13 @@ def main():
     )
     root.addHandler(fh)
 
-    exp_config = config["experiment"]
-    set_seed(exp_config["seed"])
+    exp_config = config.experiment
+    set_seed(exp_config.seed)
 
     with open(run_path / "config.json", "w") as f:
-        json.dump(config, f, indent=2)
+        json.dump(OmegaConf.to_container(config, resolve=True), f, indent=2)
 
-    mode = exp_config["mode"]
+    mode = exp_config.mode
     if mode == "scalar":
         from scalar import loop
     elif mode == "textual":

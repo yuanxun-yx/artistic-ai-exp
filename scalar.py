@@ -3,6 +3,7 @@ import logging
 from pathlib import Path
 
 from datasets import Dataset
+from omegaconf import DictConfig
 from peft import LoraConfig
 from transformers import AutoModelForCausalLM, AutoTokenizer, TrainerCallback
 from trl.experimental.online_dpo import OnlineDPOConfig
@@ -29,39 +30,39 @@ class JsonlLogCallback(TrainerCallback):
             f.write("\n")
 
 
-def loop(config: dict, run_path: Path) -> None:
+def loop(config: DictConfig, run_path: Path) -> None:
     env = get_jinja_env("prompts")
     artist_prompt = env.get_template("artist/init.jinja")
     critic_prompt_dev = env.get_template("critic/scalar/dev.jinja")
     critic_prompt_user = env.get_template("critic/scalar/user.jinja")
 
-    artist_config = config["artist"]
-    generate_config = artist_config["generate"]
-    low, high = compute_length_bounds(generate_config["max_new_tokens"])
+    artist_config = config.artist
+    generate_config = artist_config.generate
+    low, high = compute_length_bounds(generate_config.max_new_tokens)
     artist_prompt = [
         {
             "role": "user",
             "content": artist_prompt.render(words_low=low, words_high=high),
         }
     ]
-    model = AutoModelForCausalLM.from_pretrained(artist_config["model"])
-    tokenizer = AutoTokenizer.from_pretrained(artist_config["model"], padding="left")
+    model = AutoModelForCausalLM.from_pretrained(artist_config.model)
+    tokenizer = AutoTokenizer.from_pretrained(artist_config.model, padding="left")
     train_dataset = Dataset.from_list([{"prompt": artist_prompt}])
 
-    critic_config = config["critic"]
+    critic_config = config.critic
 
-    pairing_config = config["pairing"]
-    top_k = pairing_config["top_k"]
-    bottom_k = pairing_config["bottom_k"]
+    pairing_config = config.pairing
+    top_k = pairing_config.top_k
+    bottom_k = pairing_config.bottom_k
 
     def get_preference(text: list[str]):
         critic_rank = get_response(
-            model=critic_config["model"],
+            model=critic_config.model,
             dev_input=critic_prompt_dev.render(
                 total=len(text), top_k=top_k, bottom_k=bottom_k
             ),
             user_input=critic_prompt_user.render(texts=text),
-            max_retries=critic_config["max_retries"],
+            max_retries=critic_config.max_retries,
         )
 
         top, bottom = critic_rank.split("\n")
@@ -73,11 +74,11 @@ def loop(config: dict, run_path: Path) -> None:
             raise ValueError(f"bottom index length {len(bottom)}, should be {bottom_k}")
         return top, bottom
 
-    train_config = config["training"]
+    train_config = config.training
     lora_config = LoraConfig(**train_config.pop("lora"))
     dpo_config = train_config.pop("dpo")
     args = OnlineDPOConfig(
-        generation_kwargs=artist_config["generate"],
+        generation_kwargs=artist_config.generate,
         output_dir=str(run_path),
         **dpo_config,
         **train_config,

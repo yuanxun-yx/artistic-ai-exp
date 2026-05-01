@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+from omegaconf import DictConfig
 from rich.progress import track
 from transformers import pipeline
 
@@ -9,7 +10,7 @@ from prompt import compute_length_bounds
 from utils import get_jinja_env
 
 
-def loop(config: dict, run_path: Path) -> None:
+def loop(config: DictConfig, run_path: Path) -> None:
     result_path = run_path / "result.jsonl"
 
     env = get_jinja_env("prompts")
@@ -19,14 +20,14 @@ def loop(config: dict, run_path: Path) -> None:
     with open("prompts/critic/textual/dev.txt", "r") as f:
         critic_prompt_dev = f.read()
 
-    artist_config = config["artist"]
-    pipe = pipeline(model=artist_config["model"])
+    artist_config = config.artist
+    pipe = pipeline(model=artist_config.model)
 
-    generate_config = artist_config["generate"]
-    low, high = compute_length_bounds(generate_config["max_new_tokens"])
+    generate_config = artist_config.generate
+    low, high = compute_length_bounds(generate_config.max_new_tokens)
     artist_prompt = artist_prompt_init.render(words_low=low, words_high=high)
 
-    critic_config = config["critic"]
+    critic_config = config.critic
 
     model_output = pipe(
         [{"role": "user", "content": artist_prompt}],
@@ -39,12 +40,14 @@ def loop(config: dict, run_path: Path) -> None:
         json.dump({"epoch": 0, "artist": model_output}, f)
         f.write("\n")
 
-    for epoch in track(range(config["training"]["num_train_epochs"]), description="Looping..."):
+    for epoch in track(
+        range(config.training.num_train_epochs), description="Looping..."
+    ):
         critic_feedback = get_response(
-            model=critic_config["model"],
+            model=critic_config.model,
             dev_input=critic_prompt_dev,
             user_input=critic_prompt_user.render(text=model_output),
-            max_retries=critic_config["max_retries"],
+            max_retries=critic_config.max_retries,
         )
 
         artist_prompt = artist_prompt_revise.render(
