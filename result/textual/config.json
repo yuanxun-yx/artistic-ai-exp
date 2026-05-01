@@ -1,0 +1,23 @@
+{
+  "output": {
+    "root": "result"
+  },
+  "experiment": {
+    "mode": "textual"
+  },
+  "training": {
+    "num_train_epochs": 2
+  },
+  "critic": {
+    "model": "gpt-5.5-pro",
+    "max_retries": 3
+  },
+  "artist": {
+    "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+    "generate": {
+      "max_new_tokens": 300,
+      "temperature": 1.0,
+      "num_return_sequences": 8
+    }
+  }
+}
