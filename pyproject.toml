@@ -9,6 +9,7 @@ dependencies = [
     "jinja2>=3.1",
     "trl[peft]>=1.3",
     "omegaconf>=2.3",
+    "pyside6>=6.11",
 ]
 
 [project.optional-dependencies]
