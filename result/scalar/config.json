@@ -1,0 +1,42 @@
+{
+  "output": {
+    "root": "result"
+  },
+  "experiment": {
+    "mode": "scalar",
+    "seed": {"range": 5}
+  },
+  "training": {
+    "num_train_epochs": 30,
+    "logging_strategy": "epoch",
+    "save_strategy": "epoch",
+    "save_total_limit": 1,
+    "lr_scheduler_type": "constant",
+    "dpo": {
+      "gradient_checkpointing": true,
+      "disable_dropout": true,
+      "beta": 0.1
+    },
+    "lora": {
+      "r": 16,
+      "lora_alpha": 32,
+      "lora_dropout": 0.05
+    }
+  },
+  "pairing": {
+    "top_k": 2,
+    "bottom_k": 2
+  },
+  "critic": {
+    "model": "gpt-5.5-pro",
+    "max_retries": 3
+  },
+  "artist": {
+    "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+    "generate": {
+      "max_new_tokens": 300,
+      "temperature": 1.0,
+      "num_return_sequences": 8
+    }
+  }
+}
