@@ -112,7 +112,7 @@ class PairwiseWidget(QWidget):
         self.result[self.i] = id
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        unanswered = [i for i, r in enumerate(self.result) if r is None]
+        unanswered = [i + 1 for i, r in enumerate(self.result) if r is None]
         if unanswered:
             idx = ", ".join(map(str, unanswered))
             QMessageBox.warning(
