@@ -74,9 +74,12 @@ def loop(config: DictConfig, run_path: Path) -> None:
             raise ValueError(f"bottom index length {len(bottom)}, should be {bottom_k}")
         return top, bottom
 
-    train_config = config.training
-    lora_config = LoraConfig(**train_config.pop("lora"))
-    dpo_config = train_config.pop("dpo")
+    train_config = config.get("training", {})
+    lora_config = train_config.pop("lora", None)
+    if lora_config is not None:
+        lora_config = LoraConfig(**lora_config)
+    dpo_config = train_config.pop("dpo", {})
+    train_args = train_config.pop("train_args", {})
     args = OnlineDPOConfig(
         generation_kwargs=artist_config.generate,
         output_dir=str(run_path),
@@ -92,4 +95,4 @@ def loop(config: DictConfig, run_path: Path) -> None:
         peft_config=lora_config,
         callbacks=[JsonlLogCallback(run_path / "metrics.jsonl")],
     )
-    trainer.train()
+    trainer.train(**train_args)
