@@ -7,10 +7,11 @@ mode = "scalar"
 seed = 42
 
 [training]
-num_train_epochs = 20
+num_train_epochs = 30
 logging_strategy = "epoch"
 save_strategy = "epoch"
 save_total_limit = 1
+lr_scheduler_type = "constant"
 
 [training.dpo]
 gradient_checkpointing = true
