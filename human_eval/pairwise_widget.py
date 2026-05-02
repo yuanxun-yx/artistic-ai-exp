@@ -5,12 +5,13 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
-    QPushButton,
     QRadioButton,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
+
+from pager_bar import PagerBar
 
 
 class PairwiseWidget(QWidget):
@@ -22,8 +23,8 @@ class PairwiseWidget(QWidget):
         "B is much better than A",
     ]
 
-    def __init__(self, pairs: list[tuple[str, str]]) -> None:
-        super().__init__()
+    def __init__(self, pairs: list[tuple[str, str]], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
 
         self.pairs = pairs
         self.result = [None] * len(self.pairs)
@@ -56,59 +57,31 @@ class PairwiseWidget(QWidget):
             choice_layout.addWidget(btn)
         self.btn_group.idClicked.connect(self.on_choice_clicked)
 
-        self.prev_btn = QPushButton("<")
-        self.prev_btn.setToolTip("Previous")
-        self.prev_btn.clicked.connect(self.on_prev_clicked)
-        self.next_btn = QPushButton(">")
-        self.next_btn.setToolTip("Next")
-        self.next_btn.clicked.connect(self.on_next_clicked)
-        self.page_text = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
-        bar_layout = QHBoxLayout()
-        bar_layout.addWidget(self.prev_btn)
-        bar_layout.addWidget(self.page_text, stretch=1)
-        bar_layout.addWidget(self.next_btn)
+        self.pager_bar = PagerBar(len(self.pairs))
+        self.pager_bar.page_changed.connect(self.on_page_changed)
 
         layout = QVBoxLayout(self)
         layout.addLayout(display_layout, stretch=1)
         layout.addLayout(choice_layout)
-        layout.addLayout(bar_layout)
+        layout.addWidget(self.pager_bar)
 
-        self.i = 0
-        self.on_page_changed()
+        self.on_page_changed(self.pager_bar.index)
 
-    def on_page_changed(self) -> None:
+    def on_page_changed(self, index: int) -> None:
         # update text
-        left, right = self.pairs[self.i]
+        left, right = self.pairs[index]
         self.left_text.setText(left)
         self.right_text.setText(right)
         # update choice
-        choice = self.result[self.i]
+        choice = self.result[index]
         self.btn_group.setExclusive(False)
         for i in range(len(self.OPTIONS)):
             btn = self.btn_group.button(i)
             btn.setChecked(choice == i)
         self.btn_group.setExclusive(True)
-        # update bar
-        if self.i == 0:
-            self.prev_btn.setEnabled(False)
-        else:
-            self.prev_btn.setEnabled(True)
-        if self.i == len(self.pairs) - 1:
-            self.next_btn.setEnabled(False)
-        else:
-            self.next_btn.setEnabled(True)
-        self.page_text.setText(f"Pair {self.i + 1} of {len(self.pairs)}")
-
-    def on_prev_clicked(self) -> None:
-        self.i -= 1
-        self.on_page_changed()
-
-    def on_next_clicked(self) -> None:
-        self.i += 1
-        self.on_page_changed()
 
     def on_choice_clicked(self, id: int) -> None:
-        self.result[self.i] = id
+        self.result[self.pager_bar.index] = id
 
     def closeEvent(self, event: QCloseEvent) -> None:
         unanswered = [i + 1 for i, r in enumerate(self.result) if r is None]
