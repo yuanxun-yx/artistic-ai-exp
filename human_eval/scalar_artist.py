@@ -61,7 +61,7 @@ if __name__ == "__main__":
         set_text.append(text)
 
     app = QApplication(qt_args)
-    window = BestWorstWidget(choices=set_text[:2])
+    window = BestWorstWidget(choices=set_text)
     window.show()
     ret = app.exec()
     if ret != 0:
