@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from human_eval.qt_utils import set_button_group_checked
 from pager_bar import PagerBar
 
 
@@ -27,7 +28,7 @@ class PairwiseWidget(QWidget):
         super().__init__(parent)
 
         self.pairs = pairs
-        self.result = [None] * len(self.pairs)
+        self.result: list[int | None] = [None] * len(self.pairs)
 
         self.setWindowTitle("Preference Judgment")
 
@@ -65,7 +66,7 @@ class PairwiseWidget(QWidget):
         layout.addLayout(choice_layout)
         layout.addWidget(self.pager_bar)
 
-        self.on_page_changed(self.pager_bar.index)
+        self.on_page_changed(self.pager_bar.index())
 
     def on_page_changed(self, index: int) -> None:
         # update text
@@ -74,14 +75,10 @@ class PairwiseWidget(QWidget):
         self.right_text.setText(right)
         # update choice
         choice = self.result[index]
-        self.btn_group.setExclusive(False)
-        for i in range(len(self.OPTIONS)):
-            btn = self.btn_group.button(i)
-            btn.setChecked(choice == i)
-        self.btn_group.setExclusive(True)
+        set_button_group_checked(self.btn_group, choice)
 
     def on_choice_clicked(self, id: int) -> None:
-        self.result[self.pager_bar.index] = id
+        self.result[self.pager_bar.index()] = id
 
     def closeEvent(self, event: QCloseEvent) -> None:
         unanswered = [i + 1 for i, r in enumerate(self.result) if r is None]

@@ -25,7 +25,6 @@ class PagerBar(QWidget):
 
         self.on_page_changed()
 
-    @property
     def index(self) -> int:
         return self._index
 
