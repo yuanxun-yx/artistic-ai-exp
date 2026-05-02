@@ -1,3 +1,4 @@
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -31,13 +32,13 @@ class PairwiseWidget(QWidget):
 
         self.left_text = QTextEdit()
         self.left_text.setReadOnly(True)
-        left_label = QLabel("Text A")
+        left_label = QLabel("Text A", alignment=Qt.AlignmentFlag.AlignCenter)
         left_layout = QVBoxLayout()
         left_layout.addWidget(left_label)
         left_layout.addWidget(self.left_text, stretch=1)
         self.right_text = QTextEdit()
         self.right_text.setReadOnly(True)
-        right_label = QLabel("Text B")
+        right_label = QLabel("Text B", alignment=Qt.AlignmentFlag.AlignCenter)
         right_layout = QVBoxLayout()
         right_layout.addWidget(right_label)
         right_layout.addWidget(self.right_text, stretch=1)
@@ -61,12 +62,10 @@ class PairwiseWidget(QWidget):
         self.next_btn = QPushButton(">")
         self.next_btn.setToolTip("Next")
         self.next_btn.clicked.connect(self.on_next_clicked)
-        self.page_text = QLabel()
+        self.page_text = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
         bar_layout = QHBoxLayout()
         bar_layout.addWidget(self.prev_btn)
-        bar_layout.addStretch()
-        bar_layout.addWidget(self.page_text)
-        bar_layout.addStretch()
+        bar_layout.addWidget(self.page_text, stretch=1)
         bar_layout.addWidget(self.next_btn)
 
         layout = QVBoxLayout(self)
