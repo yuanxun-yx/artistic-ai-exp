@@ -4,8 +4,9 @@ import random
 import sys
 from pathlib import Path
 
-from pairwise_widget import PairwiseWidget
 from PySide6.QtWidgets import QApplication
+
+from pairwise_widget import PairwiseWidget
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -43,8 +44,7 @@ if __name__ == "__main__":
 
     random.shuffle(runs)
     pairs = []
-    for i, r in enumerate(runs):
-        r["eval_order"] = i
+    for r in runs:
         initial = r.pop("initial")
         final = r.pop("final")
         if r["reversed"]:

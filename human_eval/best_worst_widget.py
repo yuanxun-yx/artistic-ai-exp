@@ -18,7 +18,7 @@ class BestWorstWidget(QWidget):
             raise NotImplementedError("only 4 choices are supported")
         self.result: list[list[int | None]] = [[None] * len(self.QUESTIONS) for _ in range(len(self.choices))]
 
-        self.setWindowTitle("Preference Judgment")
+        self.setWindowTitle("Best\u2013Worst Judgment")
 
         text_ids = [chr(ord("A") + i) for i in range(4)]
 
