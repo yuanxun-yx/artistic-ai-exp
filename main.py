@@ -6,7 +6,6 @@ from pathlib import Path
 
 from omegaconf import OmegaConf
 from rich.logging import RichHandler
-from transformers import set_seed
 
 logger = logging.getLogger(__name__)
 
@@ -44,13 +43,10 @@ def main():
     )
     root.addHandler(fh)
 
-    exp_config = config.experiment
-    set_seed(exp_config.seed)
-
     with open(run_path / "config.json", "w") as f:
         json.dump(OmegaConf.to_container(config, resolve=True), f, indent=2)
 
-    mode = exp_config.mode
+    mode = config.experiment.mode
     if mode == "scalar":
         from scalar import loop
     elif mode == "textual":

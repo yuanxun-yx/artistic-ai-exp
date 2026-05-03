@@ -4,9 +4,9 @@ root = "result"
 
 [experiment]
 mode = "scalar"
-seed = 42
 
 [training]
+seed = 42
 num_train_epochs = 30
 logging_strategy = "epoch"
 save_strategy = "epoch"

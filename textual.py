@@ -3,7 +3,7 @@ from pathlib import Path
 
 from omegaconf import DictConfig
 from rich.progress import track
-from transformers import pipeline
+from transformers import pipeline, set_seed
 
 from critic import get_response
 from prompt import compute_length_bounds
@@ -12,6 +12,9 @@ from utils import get_jinja_env
 
 def loop(config: DictConfig, run_path: Path) -> None:
     result_path = run_path / "result.jsonl"
+
+    train_config = config.training
+    set_seed(train_config.seed)
 
     env = get_jinja_env("prompts")
     artist_prompt_init = env.get_template("artist/init.jinja")
@@ -40,9 +43,7 @@ def loop(config: DictConfig, run_path: Path) -> None:
         json.dump({"epoch": 0, "artist": model_output}, f)
         f.write("\n")
 
-    for epoch in track(
-        range(config.training.num_train_epochs), description="Looping..."
-    ):
+    for epoch in track(range(train_config.num_train_epochs), description="Looping..."):
         critic_feedback = get_response(
             model=critic_config.model,
             dev_input=critic_prompt_dev,
