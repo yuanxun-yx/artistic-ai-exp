@@ -1,6 +1,6 @@
 [output]
 root = "result"
-#run_name = "run"
+# run_name = "run"
 
 [experiment]
 mode = "scalar"
@@ -36,5 +36,9 @@ model = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 
 [artist.generate]
 max_new_tokens = 300
-temperature = 1.0
 num_return_sequences = 8
+temperature = 1.0
+top_k = 0
+top_p = 1.0
+# default for llama 3.1 & DPO, add this for other models
+# do_sample = true
