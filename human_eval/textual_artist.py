@@ -4,9 +4,9 @@ import random
 import sys
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication
-
 from pairwise_widget import PairwiseWidget
+from PySide6.QtWidgets import QApplication
+from result_io import iter_result
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -14,19 +14,9 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, default="textual_artist_eval.json")
     args, qt_args = parser.parse_known_args()
 
-    textual_result = args.input
-    if not textual_result.is_dir():
-        raise FileNotFoundError(f"{textual_result} is not a directory")
-
     runs = []
 
-    for seed in textual_result.iterdir():
-        if not seed.is_dir():
-            continue
-        path = seed / "result.jsonl"
-        if not path.is_file():
-            raise FileNotFoundError(f"{path} is not a file")
-
+    for path, seed in iter_result(args.input):
         with open(path, "r") as f:
             lines = f.readlines()
 
@@ -35,7 +25,7 @@ if __name__ == "__main__":
 
         runs.append(
             {
-                "seed": int(seed.name),
+                "seed": seed,
                 "initial": initial,
                 "final": final,
                 "reversed": random.choice([True, False]),

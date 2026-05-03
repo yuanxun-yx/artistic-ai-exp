@@ -5,9 +5,9 @@ import sys
 from itertools import batched
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication
-
 from best_worst_widget import BestWorstWidget
+from PySide6.QtWidgets import QApplication
+from result_io import iter_result
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -17,21 +17,11 @@ if __name__ == "__main__":
     parser.add_argument("--set_size", type=int, default=4)
     args, qt_args = parser.parse_known_args()
 
-    scalar_result = args.input
-    if not scalar_result.is_dir():
-        raise FileNotFoundError(f"{scalar_result} is not a directory")
-
     half_set_size = args.set_size // 2
 
     sets = []
 
-    for seed in scalar_result.iterdir():
-        if not seed.is_dir():
-            continue
-        path = seed / "result.jsonl"
-        if not path.is_file():
-            raise FileNotFoundError(f"{path} is not a file")
-
+    for path, seed in iter_result(args.input):
         with open(path, "r") as f:
             lines = f.readlines()
 
@@ -50,13 +40,13 @@ if __name__ == "__main__":
                 for epoch, pair in zip([0, -1], [init, fin]):
                     s += [{"epoch": epoch, "index": i[0], "text": i[1]} for i in pair]
                 random.shuffle(s)
-                sets.append({"seed": int(seed.name), "batch": s})
+                sets.append({"seed": seed, "set": s})
 
     random.shuffle(sets)
     set_text = []
     for s in sets:
         text = []
-        for b in s["batch"]:
+        for b in s["set"]:
             text.append(b.pop("text"))
         set_text.append(text)
 

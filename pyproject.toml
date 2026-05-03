@@ -10,6 +10,7 @@ dependencies = [
     "trl[peft]>=1.3",
     "omegaconf>=2.3",
     "pyside6>=6.11",
+    "polars>=1.40",
 ]
 
 [project.optional-dependencies]

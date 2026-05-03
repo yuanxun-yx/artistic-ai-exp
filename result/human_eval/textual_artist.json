@@ -1,0 +1,152 @@
+[
+  {
+    "seed": 8,
+    "reversed": false,
+    "choice": 0
+  },
+  {
+    "seed": 15,
+    "reversed": false,
+    "choice": 1
+  },
+  {
+    "seed": 22,
+    "reversed": false,
+    "choice": 1
+  },
+  {
+    "seed": 1,
+    "reversed": false,
+    "choice": 3
+  },
+  {
+    "seed": 9,
+    "reversed": true,
+    "choice": 3
+  },
+  {
+    "seed": 6,
+    "reversed": false,
+    "choice": 4
+  },
+  {
+    "seed": 12,
+    "reversed": false,
+    "choice": 2
+  },
+  {
+    "seed": 10,
+    "reversed": false,
+    "choice": 4
+  },
+  {
+    "seed": 29,
+    "reversed": true,
+    "choice": 0
+  },
+  {
+    "seed": 0,
+    "reversed": true,
+    "choice": 3
+  },
+  {
+    "seed": 3,
+    "reversed": true,
+    "choice": 0
+  },
+  {
+    "seed": 18,
+    "reversed": false,
+    "choice": 3
+  },
+  {
+    "seed": 17,
+    "reversed": false,
+    "choice": 0
+  },
+  {
+    "seed": 19,
+    "reversed": false,
+    "choice": 3
+  },
+  {
+    "seed": 20,
+    "reversed": true,
+    "choice": 0
+  },
+  {
+    "seed": 23,
+    "reversed": false,
+    "choice": 1
+  },
+  {
+    "seed": 21,
+    "reversed": false,
+    "choice": 1
+  },
+  {
+    "seed": 26,
+    "reversed": false,
+    "choice": 1
+  },
+  {
+    "seed": 11,
+    "reversed": true,
+    "choice": 2
+  },
+  {
+    "seed": 2,
+    "reversed": false,
+    "choice": 3
+  },
+  {
+    "seed": 24,
+    "reversed": true,
+    "choice": 1
+  },
+  {
+    "seed": 14,
+    "reversed": false,
+    "choice": 3
+  },
+  {
+    "seed": 25,
+    "reversed": true,
+    "choice": 0
+  },
+  {
+    "seed": 27,
+    "reversed": true,
+    "choice": 1
+  },
+  {
+    "seed": 13,
+    "reversed": false,
+    "choice": 3
+  },
+  {
+    "seed": 7,
+    "reversed": false,
+    "choice": 4
+  },
+  {
+    "seed": 5,
+    "reversed": false,
+    "choice": 4
+  },
+  {
+    "seed": 16,
+    "reversed": true,
+    "choice": 0
+  },
+  {
+    "seed": 28,
+    "reversed": false,
+    "choice": 4
+  },
+  {
+    "seed": 4,
+    "reversed": false,
+    "choice": 4
+  }
+]

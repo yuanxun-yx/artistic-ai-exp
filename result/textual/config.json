@@ -1,12 +1,10 @@
 {
-  "output": {
-    "root": "result"
-  },
   "experiment": {
     "mode": "textual"
   },
   "training": {
-    "num_train_epochs": 2
+    "num_train_epochs": 3,
+    "seed": {"range": 30}
   },
   "critic": {
     "model": "gpt-5.5-pro",
@@ -16,8 +14,11 @@
     "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
     "generate": {
       "max_new_tokens": 300,
-      "temperature": 1.0,
-      "num_return_sequences": 8
+      "num_return_sequences": 1,
+      "temperature": 0.95,
+      "top_k": 0,
+      "top_p": 1.0,
+      "min_p": 0.03
     }
   }
 }
