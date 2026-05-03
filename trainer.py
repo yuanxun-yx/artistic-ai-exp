@@ -219,17 +219,8 @@ class MyOnlineDPOTrainer(OnlineDPOTrainer):
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
-        # DIFF: honor model's generation config to be consistant with pipeline
-        model_generation_config = model.generation_config
-        self.pad_token_id = (
-            model_generation_config.pad_token_id or tokenizer.pad_token_id
-        )
-        self.bos_token_id = (
-            model_generation_config.bos_token_id or tokenizer.bos_token_id
-        )
-        self.eos_token_id = (
-            model_generation_config.eos_token_id or tokenizer.eos_token_id
-        )
+        self.pad_token_id = tokenizer.pad_token_id
+        self.eos_token_id = tokenizer.eos_token_id
 
         # Vision tokens for VLM support
         self.image_token_id = getattr(processing_class, "image_token_id", None)
@@ -407,7 +398,7 @@ class MyOnlineDPOTrainer(OnlineDPOTrainer):
                 "max_new_tokens": args.max_new_tokens,
                 "do_sample": True,
                 "pad_token_id": self.pad_token_id,
-                "bos_token_id": self.bos_token_id,
+                "bos_token_id": tokenizer.bos_token_id,
                 "eos_token_id": self.eos_token_id,
                 "temperature": self.temperature,
                 "top_k": self.top_k,
