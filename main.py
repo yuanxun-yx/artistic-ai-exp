@@ -21,15 +21,16 @@ def main():
     rh.setFormatter(logging.Formatter("%(message)s"))
     root.addHandler(rh)
 
-    cli = OmegaConf.from_cli()
+    config = OmegaConf.from_cli()
 
-    config_path = Path(cli.pop("config", "config.toml"))
-    if not config_path.is_file():
-        raise FileNotFoundError(f'config file not found: "{config_path}"')
-    with config_path.open("rb") as f:
-        base = OmegaConf.create(tomllib.load(f))
-
-    config = OmegaConf.merge(base, cli)
+    config_path = config.pop("config", None)
+    if config_path is not None:
+        config_path = Path(config_path)
+        if not config_path.is_file():
+            raise FileNotFoundError(f'config file not found: "{config_path}"')
+        with config_path.open("rb") as f:
+            base = OmegaConf.create(tomllib.load(f))
+        config = OmegaConf.merge(base, config)
 
     output_config = config.output
     output_root = Path(output_config.root)
