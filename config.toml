@@ -37,8 +37,9 @@ model = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 [artist.generate]
 max_new_tokens = 300
 num_return_sequences = 8
-temperature = 1.0
+temperature = 0.95
 top_k = 0
 top_p = 1.0
+min_p = 0.03
 # default for llama 3.1 & DPO, add this for other models
 # do_sample = true
