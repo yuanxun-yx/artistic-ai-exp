@@ -1,11 +1,12 @@
-from time import sleep
+import asyncio
+import random
 
-from openai import APIConnectionError, OpenAI
+from openai import APIConnectionError, AsyncOpenAI
 
-client = OpenAI()
+client = AsyncOpenAI()
 
 
-def get_response(
+async def get_response(
     model: str,
     dev_input: str,
     user_input: str,
@@ -13,7 +14,7 @@ def get_response(
 ) -> str:
     for i in range(max_retries):
         try:
-            response = client.responses.create(
+            response = await client.responses.create(
                 model=model,
                 input=[
                     {"role": "developer", "content": dev_input},
@@ -22,7 +23,7 @@ def get_response(
             )
         # openai burst rate limit
         except APIConnectionError:
-            sleep(2**i)
+            await asyncio.sleep(2**i * (1 + random.random() * 0.1))
             continue
         return response.output_text
     raise RuntimeError(
