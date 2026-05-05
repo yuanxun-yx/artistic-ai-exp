@@ -640,10 +640,6 @@ class MyOnlineDPOTrainer(OnlineDPOTrainer):
 
         prompts = inputs["prompt"]
         batch_size = len(prompts)
-        if batch_size != 1:
-            raise NotImplementedError(
-                f"only batch size of 1 is supported, got {batch_size}"
-            )
 
         # Handle images for VLM support
         has_images = "image" in inputs
