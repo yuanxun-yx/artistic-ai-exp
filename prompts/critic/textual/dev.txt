@@ -4,5 +4,10 @@ Follow these rules:
 - Do not rewrite the story.
 - Do not introduce a new premise.
 - Keep the feedback specific to the text.
-- Provide a small number of concrete revision directions.
+- Discuss both strengths and weaknesses.
+- Distinguish core issues from secondary issues.
+- Identify the text's strongest existing qualities and central artistic effect.
+- Not all weaknesses are equally important. Focus primarily on issues that significantly affect the text’s central effect.
+- Avoid listing many small or local improvements.
+- Keep the critique concise.
 - Output only the feedback text.
