@@ -80,15 +80,15 @@ class PairwiseWidget(QWidget):
     def on_choice_clicked(self, id: int) -> None:
         self.result[self.pager_bar.index()] = id
 
-    # def closeEvent(self, event: QCloseEvent) -> None:
-    #     unanswered = [i + 1 for i, r in enumerate(self.result) if r is None]
-    #     if unanswered:
-    #         idx = ", ".join(map(str, unanswered))
-    #         QMessageBox.warning(
-    #             self,
-    #             "Incomplete",
-    #             f"Unanswered pairs: {idx}.\nPlease complete all before exiting.",
-    #         )
-    #         event.ignore()
-    #     else:
-    #         event.accept()
+    def closeEvent(self, event: QCloseEvent) -> None:
+        unanswered = [i + 1 for i, r in enumerate(self.result) if r is None]
+        if unanswered:
+            idx = ", ".join(map(str, unanswered))
+            QMessageBox.warning(
+                self,
+                "Incomplete",
+                f"Unanswered pairs: {idx}.\nPlease complete all before exiting.",
+            )
+            event.ignore()
+        else:
+            event.accept()

@@ -1,5 +1,6 @@
-import json
 from pathlib import Path
+
+import polars as pl
 
 
 def iter_result(root: Path):
@@ -15,20 +16,36 @@ def iter_result(root: Path):
         yield path, int(seed.name)
 
 
-def get_texts(
-    root: Path,
-    final_step: int,
-    mode: str,
-) -> tuple[list[dict], list[dict]]:
-    init = []
-    final = []
+def read_data(root: Path) -> pl.DataFrame:
+    dfs = []
     for path, seed in iter_result(root):
-        with path.open("r") as f:
-            lines = f.readlines()
-        for i, lst in zip((0, final_step), (init, final)):
-            texts = json.loads(lines[i])["artist"]
-            lst += [
-                {"mode": mode, "seed": seed, "index": idx, "text": text}
-                for idx, text in enumerate(texts)
-            ]
-    return init, final
+        df = pl.read_ndjson(path)
+        if "step" not in df.columns:
+            df = df.with_row_index("step")
+        df = df.with_columns(pl.lit(seed).alias("seed"))
+        dfs.append(df)
+    df = pl.concat(dfs)
+    return df
+
+
+def read_textual(root: Path) -> pl.DataFrame:
+    df = read_data(root)
+
+    length = pl.col("artist").list.len()
+
+    df = df.with_columns(
+        critic=pl.col("critic").fill_null(
+            pl.lit(None, dtype=pl.String).repeat_by(length)
+        ),
+        idx=pl.int_ranges(length, dtype=pl.UInt32),
+    ).explode(["artist", "critic", "idx"])
+
+    return df
+
+
+def read_scalar(root: Path) -> pl.DataFrame:
+    df = read_data(root)
+    df = df.with_columns(
+        idx=pl.int_ranges(pl.col("artist").list.len(), dtype=pl.UInt32)
+    ).explode(["artist", "critic", "ref", "idx"])
+    return df
