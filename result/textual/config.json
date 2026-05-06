@@ -3,8 +3,17 @@
     "mode": "textual"
   },
   "training": {
-    "num_train_epochs": 3,
-    "seed": {"range": 30}
+    "seed": {"range": 5},
+    "num_train_epochs": 2,
+    "logging_steps": 1,
+    "save_steps": 1,
+    "save_total_limit": 1,
+    "lr_scheduler_type": "constant",
+    "lora": {
+      "r": 16,
+      "lora_alpha": 32,
+      "lora_dropout": 0.05
+    }
   },
   "critic": {
     "model": "gpt-5.5-pro",
@@ -14,7 +23,6 @@
     "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
     "generate": {
       "max_new_tokens": 300,
-      "num_return_sequences": 1,
       "temperature": 0.95,
       "top_k": 0,
       "top_p": 1.0,
