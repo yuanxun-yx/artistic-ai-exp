@@ -4,25 +4,16 @@
   },
   "training": {
     "seed": {"range": 5},
-    "num_train_epochs": 30,
-    "logging_strategy": "epoch",
-    "save_strategy": "epoch",
+    "num_train_epochs": 10,
+    "logging_steps": 1,
+    "save_steps": 1,
     "save_total_limit": 1,
     "lr_scheduler_type": "constant",
-    "dpo": {
-      "gradient_checkpointing": true,
-      "disable_dropout": true,
-      "beta": 0.1
-    },
     "lora": {
       "r": 16,
       "lora_alpha": 32,
       "lora_dropout": 0.05
     }
-  },
-  "pairing": {
-    "top_k": 2,
-    "bottom_k": 2
   },
   "critic": {
     "model": "gpt-5.5-pro",
@@ -32,7 +23,6 @@
     "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
     "generate": {
       "max_new_tokens": 300,
-      "num_return_sequences": 8,
       "temperature": 0.95,
       "top_k": 0,
       "top_p": 1.0,
