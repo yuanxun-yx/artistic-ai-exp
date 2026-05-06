@@ -6,7 +6,7 @@ from omegaconf import DictConfig
 from rich.progress import track
 from transformers import pipeline, set_seed
 
-from critic import get_response
+from critic import get_response_batch
 from prompt import compute_length_bounds
 from utils import get_jinja_env
 
@@ -17,18 +17,6 @@ def make_input(prompts: list[str]):
 
 def make_output(model_output: list[list[dict[str, str]]]):
     return [d["generated_text"].lstrip() for b in model_output for d in b]
-
-
-async def critic_batch(
-    model: str, dev_input: str, user_input: list[str], max_retries: int
-):
-    coro = [
-        get_response(
-            model=model, dev_input=dev_input, user_input=i, max_retries=max_retries
-        )
-        for i in user_input
-    ]
-    return await asyncio.gather(*coro, return_exceptions=True)
 
 
 def loop(config: DictConfig, run_path: Path) -> None:
@@ -66,12 +54,12 @@ def loop(config: DictConfig, run_path: Path) -> None:
     model_output = make_output(model_output)
 
     with result_path.open("a") as f:
-        json.dump({"epoch": 0, "artist": model_output}, f)
+        json.dump({"step": 0, "artist": model_output}, f)
         f.write("\n")
 
-    for epoch in track(range(train_config.num_train_epochs), description="Looping..."):
+    for step in track(range(train_config.num_train_epochs), description="Looping..."):
         critic_feedback = asyncio.run(
-            critic_batch(
+            get_response_batch(
                 model=critic_config.model,
                 dev_input=critic_prompt_dev,
                 user_input=[critic_prompt_user.render(text=o) for o in model_output],
@@ -100,7 +88,7 @@ def loop(config: DictConfig, run_path: Path) -> None:
         with result_path.open("a") as f:
             json.dump(
                 {
-                    "epoch": epoch + 1,
+                    "step": step + 1,
                     "critic": critic_feedback,
                     "artist": model_output,
                 },

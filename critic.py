@@ -29,3 +29,15 @@ async def get_response(
     raise RuntimeError(
         f"critic model failed to return feedback after {max_retries} retries"
     )
+
+
+async def get_response_batch(
+    model: str, dev_input: str, user_input: list[str], max_retries: int
+):
+    coro = [
+        get_response(
+            model=model, dev_input=dev_input, user_input=i, max_retries=max_retries
+        )
+        for i in user_input
+    ]
+    return await asyncio.gather(*coro, return_exceptions=True)

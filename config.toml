@@ -7,25 +7,16 @@ mode = "scalar"
 
 [training]
 seed = 42
-num_train_epochs = 30
-logging_strategy = "epoch"
-save_strategy = "epoch"
+num_train_epochs = 15
+logging_steps = 1
+save_steps = 1
 save_total_limit = 1
 lr_scheduler_type = "constant"
-
-[training.dpo]
-gradient_checkpointing = true
-disable_dropout = true
-beta = 0.1
 
 [training.lora]
 r = 16
 lora_alpha = 32
 lora_dropout = 0.05
-
-[pairing]
-top_k = 2
-bottom_k = 2
 
 [critic]
 model = "gpt-5.5-pro"
@@ -36,7 +27,6 @@ model = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 
 [artist.generate]
 max_new_tokens = 300
-num_return_sequences = 2
 temperature = 0.95
 top_k = 0
 top_p = 1.0

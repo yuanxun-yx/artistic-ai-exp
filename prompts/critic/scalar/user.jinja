@@ -1,9 +1,9 @@
-{% for text in texts -%}
-Text {{ loop.index0 }}:
+Text A:
 <<<BEGIN TEXT>>>
-{{ text }}
+{{ A }}
 <<<END TEXT>>>
-{%- if not loop.last %}
 
-{% endif %}
-{%- endfor %}
+Text B:
+<<<BEGIN TEXT>>>
+{{ B }}
+<<<END TEXT>>>
