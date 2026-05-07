@@ -57,7 +57,7 @@ def loop(config: DictConfig, run_path: Path) -> None:
         json.dump({"step": 0, "artist": model_output}, f)
         f.write("\n")
 
-    for step in track(range(train_config.num_train_epochs), description="Looping..."):
+    for step in track(range(train_config.num_steps), description="Looping..."):
         critic_feedback = asyncio.run(
             get_response_batch(
                 model=critic_config.model,

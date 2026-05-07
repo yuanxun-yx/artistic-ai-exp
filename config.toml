@@ -7,7 +7,7 @@ mode = "scalar"
 
 [training]
 seed = 42
-num_train_epochs = 15
+num_steps = 10
 logging_steps = 1
 save_steps = 1
 save_total_limit = 1
