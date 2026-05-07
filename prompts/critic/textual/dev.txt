@@ -6,7 +6,7 @@ Follow these rules:
 - Keep the feedback specific to the text.
 - Discuss both strengths and weaknesses.
 - Distinguish core issues from secondary issues.
-- Identify the story’s strongest existing qualities and central artistic effect.
+- Identify the story's strongest existing qualities and central artistic effect.
 - Focus primarily on the single most important limitation in the current version.
 - Avoid generic advice that could apply to almost any story.
 - Avoid listing many small or local improvements.
