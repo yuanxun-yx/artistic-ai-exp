@@ -23,7 +23,7 @@ for details.
 ### Scalar Loop (XPO)
 
 ```bash
-uv run main.py \
+uv run python main.py \
   config config.toml \
   experiment.mode scalar \
   training.num_steps 10 \
@@ -33,7 +33,7 @@ uv run main.py \
 ### Textual Loop (Inference)
 
 ```bash
-uv run main.py \
+uv run python main.py \
   config config.toml \
   experiment.mode textual \
   training.num_steps 4 \
@@ -43,7 +43,7 @@ uv run main.py \
 ## Evaluation
 
 ```bash
-uv run human_eval/pairwise_cli.py \
+uv run python human_eval/pairwise_cli.py \
   --textual result/textual \
   --scalar result/scalar \
   --output result/pairwise.csv
@@ -52,7 +52,7 @@ uv run human_eval/pairwise_cli.py \
 ## Analysis
 
 ```bash
-uv run analysis/pairwise.py \
+uv run python analysis/pairwise.py \
   result/pairwise.csv \
   --output result/analysis.csv
 ```
