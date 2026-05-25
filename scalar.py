@@ -39,7 +39,7 @@ def loop(config: DictConfig, run_path: Path) -> None:
         critic_prompt_dev = f.read()
     critic_prompt_user = env.get_template("critic/scalar/user.jinja")
     with open("prompts/artist/premise.txt", "r") as f:
-        premise = [l.rstrip() for l in f.readlines()]
+        premise = f.read().splitlines()
 
     artist_config = config.artist
     generate_config = artist_config.generate

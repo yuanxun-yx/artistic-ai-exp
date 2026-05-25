@@ -32,7 +32,7 @@ def loop(config: DictConfig, run_path: Path) -> None:
     with open("prompts/critic/textual/dev.txt", "r") as f:
         critic_prompt_dev = f.read()
     with open("prompts/artist/premise.txt", "r") as f:
-        premise = [l.rstrip() for l in f.readlines()]
+        premise = f.read().splitlines()
 
     artist_config = config.artist
     pipe = pipeline(model=artist_config.model)
